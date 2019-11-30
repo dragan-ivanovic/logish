@@ -654,10 +654,10 @@ public class Relish {
         }
 
         public static Goal appendO(Object x, Object y, Object z) {
-            return choice(
+            return delayed(() -> choice(
                     seq(unify(x, Cons.NIL), unify(y, z)),
-                    fresh((h, a, c) -> seq(unify(x, Cons.th(a, h)), unify(z, Cons.th(c, h)), delayed(() -> appendO(a, y, c))))
-            );
+                    fresh((h, a, c) -> seq(unify(x, Cons.th(a, h)), unify(z, Cons.th(c, h)), appendO(a, y, c)))
+            ));
         }
 
         public static Goal memberO(Object x, Object y) {
