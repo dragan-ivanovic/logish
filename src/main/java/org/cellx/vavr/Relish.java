@@ -15,8 +15,9 @@ import java.util.function.Supplier;
 
 public class Relish {
 
+    @SuppressWarnings("unused")
     public static final class Cons implements Iterable<Object> {
-        public static final Object NIL = "[]".intern();
+        public static final Object NIL = "[]";
         final Object first;
         Object second;
 
@@ -123,8 +124,8 @@ public class Relish {
             final int len = elements.length;
             final Cons result = new Cons(element, null);
             Cons last = result;
-            for (int i = 0; i < len; i++) {
-                final Cons cons = new Cons(elements[i], null);
+            for (Object o : elements) {
+                final Cons cons = new Cons(o, null);
                 last.setSecond(cons);
                 last = cons;
             }
@@ -278,6 +279,10 @@ public class Relish {
             return new ConsSeries<>(head, tail);
         }
 
+        public static <T> Series<T> singleton(T element) {
+            return new ConsSeries<>(element, empty());
+        }
+
         public static <T> Series<T> suspension(Supplier<Series<T>> supplier) {
             return new SuspendedSeries<>(supplier);
         }
@@ -330,7 +335,7 @@ public class Relish {
             return this;
         }
 
-        final static EmptySeries<Object> INSTANCE = new EmptySeries<Object>();
+        final static EmptySeries<Object> INSTANCE = new EmptySeries<>();
     }
 
     static class ConsSeries<T> extends Series<T> {
@@ -401,6 +406,7 @@ public class Relish {
         }
     }
 
+    @SuppressWarnings({"unused", "SuspiciousNameCombination"})
     public static abstract class Goal implements Function<Map<Integer, Object>, Series<Map<Integer, Object>>> {
 
         static class Delayed extends Goal {
@@ -434,9 +440,13 @@ public class Relish {
             static final Success INSTANCE = new Success();
         }
 
+        public static Goal failure() {
+            return Failure.INSTANCE;
+        }
 
-        public static Goal failure = Failure.INSTANCE;
-        public static Goal success = Success.INSTANCE;
+        public static Goal success() {
+            return Success.INSTANCE;
+        }
 
         static class Conj extends Goal {
             final Goal first, second;
@@ -557,13 +567,49 @@ public class Relish {
                 if (result.isEmpty()) {
                     return Series.empty();
                 } else {
-                    return Series.cons(result.get(), Series.empty());
+                    return Series.singleton(result.get());
                 }
             }
         }
 
         public static Goal unify(Object left, Object right) {
             return new Unify(left, right);
+        }
+
+        static class Equals extends Goal {
+            final Object left, right;
+
+            Equals(Object left, Object right) {
+                this.left = left;
+                this.right = right;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                return Objects.equals(walk(left, subst), walk(right, subst))? Series.singleton(subst): Series.empty();
+            }
+        }
+
+        public static Goal equals(Object x, Object y) {
+            return new Equals(x, y);
+        }
+
+        static class Same extends Goal {
+            final Object left, right;
+
+            Same(Object left, Object right) {
+                this.left = left;
+                this.right = right;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                return walk(left, subst) == walk(right, subst)? Series.singleton(subst): Series.empty();
+            }
+        }
+
+        public static Goal same(Object x, Object y) {
+            return new Same(x, y);
         }
 
         static class Fresh1 extends Goal {
@@ -594,6 +640,19 @@ public class Relish {
                 final Var v1 = new Var(nextVar);
                 final Var v2 = new Var(nextVar + 1);
                 return body.apply(v1, v2).apply(subst.put(nextVar, v1).put(nextVar + 1, v2));
+            }
+        }
+
+        static class Negated extends Goal {
+            final Goal goal;
+
+            Negated(Goal goal) {
+                this.goal = goal;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> tuple2s) {
+                return null;
             }
         }
 
@@ -647,6 +706,10 @@ public class Relish {
             return unify(z, new Cons(x, y));
         }
 
+        public static Goal nilO(Object x) {
+            return unify(x, Cons.NIL);
+        }
+
         public static Stream<Object> run(Function<Var, Goal> body) {
             final Var q = new Var(0);
             final Map<Integer, Object> subst0 = TreeMap.of(0, q);
@@ -661,13 +724,111 @@ public class Relish {
         }
 
         public static Goal memberO(Object x, Object y) {
-            return delayed(() -> fresh((t, h) -> seq(
+            return fresh((t, h) -> seq(
                     unify(y, Cons.th(t, h)),
                     choice(
                             unify(x, h),
                             memberO(x, t)
                     ))
+            );
+        }
+
+        public static Goal memberCheckO(Object x, Object y) {
+            return fresh((t, h) -> seq(
+                    unify(y, Cons.th(t, h)),
+                    ifte(unify(x, h), Goal::success, () -> memberCheckO(x, t))
             ));
+        }
+
+        static class Ifte extends Goal {
+            final Goal question;
+            final Supplier<Goal> thenBranch;
+            final Supplier<Goal> elseBranch;
+
+            Ifte(Goal question, Supplier<Goal> thenBranch, Supplier<Goal> elseBranch) {
+                this.question = question;
+                this.thenBranch = thenBranch;
+                this.elseBranch = elseBranch;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Series<Map<Integer, Object>> questionResult = question.apply(subst).forceStar();
+                if (questionResult.isEmpty()) {
+                    return elseBranch.get().apply(subst);
+                } else {
+                    return Series.appendMapInf(thenBranch.get(), questionResult);
+                }
+            }
+        }
+
+        public static Goal ifte(Goal question, Supplier<Goal> thenBranch, Supplier<Goal> elseBranch) {
+            return new Ifte(question, thenBranch, elseBranch);
+        }
+
+        static class Once extends Goal {
+            final Goal goal;
+
+            Once(Goal goal) {
+                this.goal = goal;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Series<Map<Integer, Object>> result = goal.apply(subst).forceStar();
+                if (result.isEmpty()) return result;
+                else return Series.singleton(result.head());
+            }
+        }
+
+        public static Goal once(Goal goal) {
+            return new Once(goal);
+        }
+
+        public static class Clause {
+            final Goal guard;
+            final Supplier<Goal> body;
+
+            public Clause(Goal guard, Supplier<Goal> body) {
+                this.guard = guard;
+                this.body = body;
+            }
+
+            public Goal guard() {
+                return guard;
+            }
+
+            public Supplier<Goal> body() {
+                return body;
+            }
+        }
+
+        public static Clause clause(Goal goal, Supplier<Goal> body) {
+            return new Clause(goal, body);
+        }
+
+        public static Goal conda(Clause... clauses) {
+            final int len = clauses.length;
+            Supplier<Goal> current = Goal::failure;
+            for (int i = len - 1; i >= 0; i--) {
+                final Goal guard = clauses[i].guard;
+                final Supplier<Goal> body = clauses[i].body;
+                final Supplier<Goal> last = current;
+                current = () -> ifte(guard, body, last);
+            }
+            return delayed(current);
+        }
+
+        public static Goal condu(Clause... clauses) {
+            final int len = clauses.length;
+            Supplier<Goal> current = Goal::failure;
+            for (int i = len - 1; i >= 0; i--) {
+                final Goal guard = clauses[i].guard;
+                final Supplier<Goal> body = clauses[i].body;
+                final Supplier<Goal> last = current;
+                current = () -> ifte(once(guard), body, last);
+            }
+            return delayed(current);
         }
     }
 }
