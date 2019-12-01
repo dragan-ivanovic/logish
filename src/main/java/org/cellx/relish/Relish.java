@@ -1,7 +1,8 @@
-package org.cellx.vavr;
+package org.cellx.relish;
 
 import io.vavr.*;
 import io.vavr.collection.Map;
+import io.vavr.collection.Seq;
 import io.vavr.collection.Stream;
 import io.vavr.collection.TreeMap;
 import io.vavr.control.Option;
@@ -237,7 +238,7 @@ public class Relish {
 
         public abstract Series<T> force();
 
-        public final Series<T> forceStar() {
+        public final Series<T> forceDeep() {
             Series<T> series = this;
             while (series.isSuspension()) series = series.force();
             return series;
@@ -252,13 +253,13 @@ public class Relish {
 
             @Override
             public boolean hasNext() {
-                series = series.forceStar();
+                series = series.forceDeep();
                 return !series.isEmpty();
             }
 
             @Override
             public T next() {
-                series = series.forceStar();
+                series = series.forceDeep();
                 final T result = series.head();
                 series = series.tail();
                 return result;
@@ -586,7 +587,7 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                return Objects.equals(walk(left, subst), walk(right, subst))? Series.singleton(subst): Series.empty();
+                return Objects.equals(walk(left, subst), walk(right, subst)) ? Series.singleton(subst) : Series.empty();
             }
         }
 
@@ -604,12 +605,31 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                return walk(left, subst) == walk(right, subst)? Series.singleton(subst): Series.empty();
+                return walk(left, subst) == walk(right, subst) ? Series.singleton(subst) : Series.empty();
             }
         }
 
         public static Goal same(Object x, Object y) {
             return new Same(x, y);
+        }
+
+
+        static class Not extends Goal {
+            final Goal goal;
+
+            Not(Goal goal) {
+                this.goal = goal;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Series<Map<Integer, Object>> result = goal.apply(subst).forceDeep();
+                return result.isEmpty() ? Series.singleton(subst) : Series.empty();
+            }
+        }
+
+        public static Goal not(Goal goal) {
+            return new Not(goal);
         }
 
         static class Fresh1 extends Goal {
@@ -621,7 +641,7 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final int nextVar = subst.length();
+                final int nextVar = subst.max().map(Tuple2::_1).getOrElse(0) + 1;
                 final Var v1 = new Var(nextVar);
                 return body.apply(v1).apply(subst.put(nextVar, v1));
             }
@@ -636,23 +656,10 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final int nextVar = subst.length();
+                final int nextVar = subst.max().map(Tuple2::_1).getOrElse(0) + 1;
                 final Var v1 = new Var(nextVar);
                 final Var v2 = new Var(nextVar + 1);
                 return body.apply(v1, v2).apply(subst.put(nextVar, v1).put(nextVar + 1, v2));
-            }
-        }
-
-        static class Negated extends Goal {
-            final Goal goal;
-
-            Negated(Goal goal) {
-                this.goal = goal;
-            }
-
-            @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> tuple2s) {
-                return null;
             }
         }
 
@@ -665,7 +672,7 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final int nextVar = subst.length();
+                final int nextVar = subst.max().map(Tuple2::_1).getOrElse(0) + 1;
                 final Var v1 = new Var(nextVar);
                 final Var v2 = new Var(nextVar + 1);
                 final Var v3 = new Var(nextVar + 2);
@@ -753,7 +760,7 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Series<Map<Integer, Object>> questionResult = question.apply(subst).forceStar();
+                final Series<Map<Integer, Object>> questionResult = question.apply(subst).forceDeep();
                 if (questionResult.isEmpty()) {
                     return elseBranch.get().apply(subst);
                 } else {
@@ -775,7 +782,7 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Series<Map<Integer, Object>> result = goal.apply(subst).forceStar();
+                final Series<Map<Integer, Object>> result = goal.apply(subst).forceDeep();
                 if (result.isEmpty()) return result;
                 else return Series.singleton(result.head());
             }
@@ -829,6 +836,403 @@ public class Relish {
                 current = () -> ifte(once(guard), body, last);
             }
             return delayed(current);
+        }
+
+        static class Free extends Goal {
+            final Object x;
+
+            Free(Object x) {
+                this.x = x;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                return walk(x, subst) instanceof Var ? Series.singleton(subst) : Series.empty();
+            }
+        }
+
+        public static Goal free(Object x) {
+            return new Free(x);
+        }
+
+        static class Test0 extends Goal {
+            final Function0<Boolean> test;
+
+            Test0(Function0<Boolean> test) {
+                this.test = test;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                return test.apply() ? Series.singleton(subst) : Series.empty();
+            }
+        }
+
+        static class Test1<T> extends Goal {
+            final Class<T> clazz;
+            final Object x;
+            final Function1<T, Boolean> test;
+
+            Test1(Class<T> clazz, Object x, Function1<T, Boolean> test) {
+                this.clazz = clazz;
+                this.x = x;
+                this.test = test;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Object deref = walk(x, subst);
+                return clazz.isInstance(deref) && test.apply(clazz.cast(deref)) ? Series.singleton(subst) : Series.empty();
+            }
+        }
+
+        static class Test2<T1, T2> extends Goal {
+            final Class<T1> clazzX;
+            final Object x;
+            final Class<T2> clazzY;
+            final Object y;
+            final Function2<T1, T2, Boolean> test;
+
+            Test2(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Function2<T1, T2, Boolean> test) {
+                this.clazzX = clazzX;
+                this.x = x;
+                this.clazzY = clazzY;
+                this.y = y;
+                this.test = test;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Object derefX = walk(x, subst);
+                final Object derefY = walk(y, subst);
+                return clazzX.isInstance(derefX) && clazzY.isInstance(derefY) &&
+                        test.apply(clazzX.cast(derefX), clazzY.cast(derefY)) ? Series.singleton(subst) : Series.empty();
+            }
+        }
+
+        static class Test3<T1, T2, T3> extends Goal {
+            final Class<T1> clazzX;
+            final Object x;
+            final Class<T2> clazzY;
+            final Object y;
+            final Class<T3> clazzZ;
+            final Object z;
+            final Function3<T1, T2, T3, Boolean> test;
+
+            Test3(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Class<T3> clazzZ, Object z,
+                  Function3<T1, T2, T3, Boolean> test) {
+                this.clazzX = clazzX;
+                this.x = x;
+                this.clazzY = clazzY;
+                this.y = y;
+                this.clazzZ = clazzZ;
+                this.z = z;
+                this.test = test;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Object derefX = walk(x, subst);
+                final Object derefY = walk(y, subst);
+                final Object derefZ = walk(z, subst);
+                return clazzX.isInstance(derefX) && clazzY.isInstance(derefY) && clazzZ.isInstance(derefZ) &&
+                        test.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ)) ?
+                        Series.singleton(subst) : Series.empty();
+            }
+        }
+
+        public static Goal test(Function0<Boolean> test) {
+            return new Test0(test);
+        }
+
+        public static <T> Goal test(Class<T> clazz, Object x, Function1<T, Boolean> test) {
+            return new Test1<>(clazz, x, test);
+        }
+
+        public static <T> Goal test(Class<T> clazz, Var x) {
+            return new Test1<>(clazz, x, v -> true);
+        }
+
+        public static <T1, T2> Goal test(Class<T1> clazzX, Var x,
+                                         Class<T2> clazzY, Var y,
+                                         Function2<T1, T2, Boolean> test) {
+            return new Test2<>(clazzX, x, clazzY, y, test);
+        }
+
+        public static <T> Goal test(Class<T> clazz, Var x, Var y,
+                                    Function2<T, T, Boolean> test) {
+            return new Test2<>(clazz, x, clazz, y, test);
+        }
+
+        public static <T1, T2, T3> Goal test(Class<T1> clazzX, Var x,
+                                             Class<T2> clazzY, Var y,
+                                             Class<T3> clazzZ, Var z,
+                                             Function3<T1, T2, T3, Boolean> test) {
+            return new Test3<>(clazzX, x, clazzY, y, clazzZ, z, test);
+        }
+
+        public static <T> Goal test(Class<T> clazz, Var x, Var y, Var z,
+                                    Function3<T, T, T, Boolean> test) {
+            return new Test3<>(clazz, x, clazz, y, clazz, z, test);
+        }
+
+        static class Side0 extends Goal {
+            final Function0<Void> action;
+
+            Side0(Function0<Void> action) {
+                this.action = action;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                action.apply();
+                return Series.singleton(subst);
+            }
+        }
+
+        static class Side1<T> extends Goal {
+            final Class<T> clazz;
+            final Object x;
+            final Function1<T, Void> action;
+
+            Side1(Class<T> clazz, Object x, Function1<T, Void> action) {
+                this.clazz = clazz;
+                this.x = x;
+                this.action = action;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Object deref = walk(x, subst);
+                action.apply(clazz.cast(deref));
+                return Series.singleton(subst);
+            }
+        }
+
+        static class Side2<T1, T2> extends Goal {
+            final Class<T1> clazzX;
+            final Object x;
+            final Class<T2> clazzY;
+            final Object y;
+            final Function2<T1, T2, Void> action;
+
+            Side2(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Function2<T1, T2, Void> action) {
+                this.clazzX = clazzX;
+                this.x = x;
+                this.clazzY = clazzY;
+                this.y = y;
+                this.action = action;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Object derefX = walk(x, subst);
+                final Object derefY = walk(y, subst);
+                action.apply(clazzX.cast(derefX), clazzY.cast(derefY));
+                return Series.singleton(subst);
+            }
+        }
+
+        static class Side3<T1, T2, T3> extends Goal {
+            final Class<T1> clazzX;
+            final Object x;
+            final Class<T2> clazzY;
+            final Object y;
+            final Class<T3> clazzZ;
+            final Object z;
+            final Function3<T1, T2, T3, Void> action;
+
+            Side3(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Class<T3> clazzZ, Object z,
+                  Function3<T1, T2, T3, Void> test) {
+                this.clazzX = clazzX;
+                this.x = x;
+                this.clazzY = clazzY;
+                this.y = y;
+                this.clazzZ = clazzZ;
+                this.z = z;
+                this.action = test;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Object derefX = walk(x, subst);
+                final Object derefY = walk(y, subst);
+                final Object derefZ = walk(z, subst);
+                action.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ));
+                return Series.singleton(subst);
+            }
+        }
+
+        public static Goal side(Function0<Void> action) {
+            return new Side0(action);
+        }
+
+        public static <T> Goal side(Class<T> clazz, Object x, Function1<T, Void> test) {
+            return new Side1<>(clazz, x, test);
+        }
+
+        public static <T1, T2> Goal side(Class<T1> clazzX, Var x,
+                                         Class<T2> clazzY, Var y,
+                                         Function2<T1, T2, Void> test) {
+            return new Side2<>(clazzX, x, clazzY, y, test);
+        }
+
+        public static <T> Goal side(Class<T> clazz, Var x, Var y,
+                                    Function2<T, T, Void> test) {
+            return new Side2<>(clazz, x, clazz, y, test);
+        }
+
+        public static <T1, T2, T3> Goal side(Class<T1> clazzX, Var x,
+                                             Class<T2> clazzY, Var y,
+                                             Class<T3> clazzZ, Var z,
+                                             Function3<T1, T2, T3, Void> test) {
+            return new Side3<>(clazzX, x, clazzY, y, clazzZ, z, test);
+        }
+
+        public static <T> Goal side(Class<T> clazz, Var x, Var y, Var z,
+                                    Function3<T, T, T, Void> test) {
+            return new Side3<>(clazz, x, clazz, y, clazz, z, test);
+        }
+
+        static class Map0 extends Goal {
+            final Function0<Object> f;
+            final Object w;
+
+            Map0(Function0<Object> f, Object w) {
+                this.f = f;
+                this.w = w;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Option<Map<Integer, Object>> result = unify(w, f.apply(), subst);
+                return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
+            }
+        }
+
+        static class Map1<T> extends Goal {
+            final Class<T> clazz;
+            final Object x;
+            final Function1<T, Object> f;
+            final Object w;
+
+            Map1(Class<T> clazz, Object x, Function1<T, Object> f, Object w) {
+                this.clazz = clazz;
+                this.x = x;
+                this.f = f;
+                this.w = w;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Object deref = walk(x, subst);
+                if (!clazz.isInstance(deref)) return Series.empty();
+                final Option<Map<Integer, Object>> result = unify(w, f.apply(clazz.cast(deref)), subst);
+                return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
+            }
+        }
+
+        static class Map2<T1, T2> extends Goal {
+            final Class<T1> clazzX;
+            final Object x;
+            final Class<T2> clazzY;
+            final Object y;
+            final Function2<T1, T2, Object> f;
+            final Object w;
+
+            Map2(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Function2<T1, T2, Object> f, Object w) {
+                this.clazzX = clazzX;
+                this.x = x;
+                this.clazzY = clazzY;
+                this.y = y;
+                this.f = f;
+                this.w = w;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Object derefX = walk(x, subst);
+                final Object derefY = walk(y, subst);
+                if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY)) return Series.empty();
+                final Option<Map<Integer, Object>> result =
+                        unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY)), subst);
+                return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
+            }
+        }
+
+        static class Map3<T1, T2, T3> extends Goal {
+            final Class<T1> clazzX;
+            final Object x;
+            final Class<T2> clazzY;
+            final Object y;
+            final Class<T3> clazzZ;
+            final Object z;
+            final Function3<T1, T2, T3, Object> f;
+            final Object w;
+
+            Map3(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Class<T3> clazzZ, Object z,
+                 Function3<T1, T2, T3, Object> f, Object w) {
+                this.clazzX = clazzX;
+                this.x = x;
+                this.clazzY = clazzY;
+                this.y = y;
+                this.clazzZ = clazzZ;
+                this.z = z;
+                this.f = f;
+                this.w = w;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                final Object derefX = walk(x, subst);
+                final Object derefY = walk(y, subst);
+                final Object derefZ = walk(z, subst);
+                if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY) ||
+                        !clazzZ.isInstance(derefZ)) return Series.empty();
+                final Option<Map<Integer, Object>> result =
+                        unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ)), subst);
+                return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
+            }
+        }
+
+        public static Goal map(Function0<Object> f, Object w) {
+            return new Map0(f, w);
+        }
+
+        public static <T> Goal map(Class<T> clazz, Var x, Function1<T, Object> f, Object w) {
+            return new Map1<>(clazz, x, f, w);
+        }
+
+        public static <T1, T2> Goal map(Class<T1> clazzX, Var x, Class<T2> clazzY, Var y,
+                                        Function2<T1, T2, Object> f, Object w) {
+            return new Map2<>(clazzX, x, clazzY, y, f, w);
+        }
+
+        public static <T1, T2, T3> Goal map(Class<T1> clazzX, Var x, Class<T2> clazzY, Var y,
+                                            Class<T3> clazzZ, Var z,
+                                            Function3<T1, T2, T3, Object> f, Object w) {
+            return new Map3<>(clazzX, x, clazzY, y, clazzZ, z, f, w);
+        }
+
+        static class Element extends Goal {
+            final Object x;
+            final Seq<?> sequence;
+
+            Element(Object x, Seq<?> sequence) {
+                this.x = x;
+                this.sequence = sequence;
+            }
+
+            @Override
+            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+                if (sequence.isEmpty()) return Series.empty();
+                return choice(unify(x, sequence.head()),
+                        delayed(() -> new Element(x, sequence.tail()))).apply(subst);
+            }
+        }
+
+        public static Goal element(Object x, Seq<?> seq) {
+            return new Element(x, seq);
         }
     }
 }
