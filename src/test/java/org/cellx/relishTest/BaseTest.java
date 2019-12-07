@@ -1,7 +1,5 @@
-package org.cellx.relish;
+package org.cellx.relishTest;
 
-import io.vavr.Tuple;
-import io.vavr.Tuple2;
 import io.vavr.collection.List;
 import io.vavr.collection.Stream;
 import org.cellx.relish.Relish;
@@ -12,6 +10,7 @@ import org.junit.Test;
 import java.util.function.Consumer;
 
 import static org.cellx.relish.Relish.Goal.*;
+import static org.cellx.relish.Relish.run;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 

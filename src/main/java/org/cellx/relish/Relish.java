@@ -1,10 +1,7 @@
 package org.cellx.relish;
 
 import io.vavr.*;
-import io.vavr.collection.Map;
-import io.vavr.collection.Seq;
-import io.vavr.collection.Stream;
-import io.vavr.collection.TreeMap;
+import io.vavr.collection.*;
 import io.vavr.control.Option;
 
 import java.lang.Iterable;
@@ -18,44 +15,60 @@ public class Relish {
 
     @SuppressWarnings("unused")
     public static final class Cons implements Iterable<Object> {
-        public static final Object NIL = "[]";
-        final Object first;
-        Object second;
+        public static final Object NIL = "()";
+        final Object car;
+        Object cdr;
 
-        public Cons(Object first, Object second) {
-            this.first = first;
-            this.second = second;
+        public Cons(Object car, Object cdr) {
+            this.car = car;
+            this.cdr = cdr;
         }
 
-        public Object getFirst() {
-            return first;
+        public Object car() {
+            return car;
         }
 
-        public Object getSecond() {
-            return second;
+        public Object cdr() {
+            return cdr;
         }
 
-        void setSecond(Object value) {
-            this.second = value;
+        public Object cadr() {
+            return ((Cons) cdr).car;
+        }
+
+        public Object caddr() {
+            return ((Cons) cdr).cadr();
+        }
+
+        public Object cadddr() {
+            return ((Cons) cdr).caddr();
+        }
+
+        public Object caddddr() {
+            return ((Cons) cdr).cadddr();
+        }
+
+        void setCdr(Object value) {
+            this.cdr = value;
         }
 
         @Override
         public String toString() {
-            final StringBuilder builder = new StringBuilder("[");
+            final StringBuilder builder = new StringBuilder("(");
             boolean first = true;
             Object current = this;
             while (current instanceof Cons) {
                 final Cons cons = (Cons) current;
-                if (!first) builder.append(", ");
-                builder.append(cons.first);
-                current = cons.second;
+                if (!first) builder.append(" ");
+                builder.append(cons.car);
+                current = cons.cdr;
                 first = false;
             }
             if (!NIL.equals(current)) {
-                builder.append(" | ");
+                builder.append(" . ");
                 builder.append(current);
             }
-            builder.append("]");
+            builder.append(")");
             return builder.toString();
         }
 
@@ -67,9 +80,9 @@ public class Relish {
                 if (!(left instanceof Cons)) return Objects.equals(left, right);
                 if (!(right instanceof Cons)) return false;
                 final Cons leftCons = (Cons) left, rightCons = (Cons) right;
-                if (!Objects.equals(leftCons.first, rightCons.first)) return false;
-                left = leftCons.second;
-                right = rightCons.second;
+                if (!Objects.equals(leftCons.car, rightCons.car)) return false;
+                left = leftCons.cdr;
+                right = rightCons.cdr;
             }
         }
 
@@ -79,8 +92,8 @@ public class Relish {
             Object current = this;
             while (current instanceof Cons) {
                 final Cons cons = (Cons) current;
-                result ^= Objects.hashCode(cons.first);
-                current = cons.second;
+                result ^= Objects.hashCode(cons.car);
+                current = cons.cdr;
             }
             return result ^ Objects.hashCode(current);
         }
@@ -90,16 +103,16 @@ public class Relish {
             Object current = this;
             while (current instanceof Cons) {
                 Cons cons = (Cons) current;
-                Cons image = new Cons(function.apply(cons.first), null);
+                Cons image = new Cons(function.apply(cons.car), null);
                 if (last == null) {
                     result = image;
                 } else {
-                    last.setSecond(image);
+                    last.setCdr(image);
                 }
                 last = image;
-                current = cons.second;
+                current = cons.cdr;
             }
-            last.setSecond(function.apply(current));
+            last.setCdr(function.apply(current));
             return result;
         }
 
@@ -110,10 +123,10 @@ public class Relish {
             Cons last = result;
             while (iterator.hasNext()) {
                 final Cons fresh = new Cons(iterator.next(), null);
-                last.setSecond(fresh);
+                last.setCdr(fresh);
                 last = fresh;
             }
-            last.setSecond(NIL);
+            last.setCdr(NIL);
             return result;
         }
 
@@ -127,10 +140,10 @@ public class Relish {
             Cons last = result;
             for (Object o : elements) {
                 final Cons cons = new Cons(o, null);
-                last.setSecond(cons);
+                last.setCdr(cons);
                 last = cons;
             }
-            last.setSecond(tail);
+            last.setCdr(tail);
             return result;
         }
 
@@ -148,8 +161,8 @@ public class Relish {
 
             @Override
             public Object next() {
-                final Object result = ((Cons) current).first;
-                current = ((Cons) current).second;
+                final Object result = ((Cons) current).car;
+                current = ((Cons) current).cdr;
                 return result;
             }
         }
@@ -199,6 +212,17 @@ public class Relish {
         }
     }
 
+    public static SortedSet<Integer> varIndices(Object o) {
+        if (o instanceof Var) return TreeSet.of(((Var) o).seq);
+        if (!(o instanceof Cons)) return TreeSet.empty();
+        SortedSet<Integer> current = TreeSet.empty();
+        while (o instanceof Cons) {
+            current = current.union(varIndices(((Cons) o).car));
+            o = ((Cons) o).cdr;
+        }
+        return current.union(varIndices(o));
+    }
+
     public static boolean exists(Object list, Predicate<Object> predicate) {
         while (list instanceof Tuple2) {
             final Tuple2<?, ?> tuple2 = (Tuple2<?, ?>) list;
@@ -207,7 +231,6 @@ public class Relish {
         }
         return false;
     }
-
 
     public static Object walk(Object term, Map<Integer, Object> subst) {
         while (term instanceof Var) {
@@ -218,6 +241,22 @@ public class Relish {
             term = newTerm;
         }
         return term;
+    }
+
+    public static Var walkVar(Var v, Map<Integer, Object> subst) {
+        int prevSeq = v.seq;
+        final Option<Object> o0 = subst.get(prevSeq);
+        if (o0.isEmpty()) return v;
+        Object t = o0.get();
+        while (t instanceof Var) {
+            v = (Var) t;
+            if (v.seq == prevSeq) break;
+            prevSeq = v.seq;
+            final Option<Object> o = subst.get(prevSeq);
+            if (o.isEmpty()) break;
+            t = o.get();
+        }
+        return v;
     }
 
     public static Object walkDeep(Object term0, Map<Integer, Object> subst) {
@@ -282,6 +321,10 @@ public class Relish {
 
         public static <T> Series<T> singleton(T element) {
             return new ConsSeries<>(element, empty());
+        }
+
+        public static <T> Series<T> of(Option<T> option) {
+            return option.isEmpty()? Series.empty(): Series.singleton(option.get());
         }
 
         public static <T> Series<T> suspension(Supplier<Series<T>> supplier) {
@@ -407,6 +450,267 @@ public class Relish {
         }
     }
 
+    public interface Constraint {
+        Cons symbolicRepr();
+    }
+
+    public interface Attribute {
+        Option<Map<Integer, Object>> validate(Var v, Object o, Map<Integer, Object> subst);
+
+        boolean delegating();
+
+        List<Constraint> constraints();
+
+        Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> combine(Var v, Attribute other, Map<Integer, Object> subst);
+    }
+
+    @SuppressWarnings("unused")
+    static Option<Map<Integer, Object>> wrapGoal(Goal goal, Map<Integer, Object> subst) {
+        final Series<Map<Integer, Object>> result = goal.apply(subst).forceDeep();
+        return result.isEmpty() ? Option.none() : Option.of(result.head());
+    }
+
+    public static Option<Attribute> getAttribute(Var v, Map<Integer, Object> subst, String domain) {
+        return getAttribute(v.seq, subst, domain);
+    }
+
+    public static Option<Attribute> getAttribute(int varSeq, Map<Integer, Object> subst, String domain) {
+        final Option<Object> untypedMap = subst.get(-varSeq - 1);
+        if (untypedMap.isEmpty()) {
+            return Option.none();
+        } else {
+            //noinspection unchecked
+            return ((Map<String, Attribute>) untypedMap.get()).get(domain);
+        }
+    }
+
+    public static Map<Integer, Object> setAttribute(Var v, Map<Integer, Object> subst,
+                                                    String domain, Attribute attribute) {
+        return setAttribute(v.seq, subst, domain, attribute);
+    }
+
+    public static Map<Integer, Object> setAttribute(int varSeq, Map<Integer, Object> subst,
+                                                    String domain, Attribute attribute) {
+        final Option<Object> untypedMap = subst.get(-varSeq - 1);
+        if (untypedMap.isEmpty()) {
+            return subst.put(-varSeq - 1, HashMap.of(domain, attribute));
+        } else {
+            //noinspection unchecked
+            return subst.put(-varSeq - 1, ((Map<String, Attribute>) untypedMap.get()).put(domain, attribute));
+        }
+    }
+
+    public static Map<Integer, Object> removeAttribute(Var v, Map<Integer, Object> subst,
+                                                       String domain) {
+        return removeAttribute(v.seq, subst, domain);
+    }
+
+    public static Map<Integer, Object> removeAttribute(int varSeq, Map<Integer, Object> subst,
+                                                       String domain) {
+        final Option<Object> untypedMap = subst.get(-varSeq - 1);
+        if (untypedMap.isEmpty()) {
+            return subst;
+        } else {
+            @SuppressWarnings("unchecked") final Map<String, Attribute> typedMap =
+                    (Map<String, Attribute>) untypedMap.get();
+            if (typedMap.containsKey(domain)) {
+                return subst.put(-varSeq - 1, typedMap.remove(domain));
+            } else {
+                return subst;
+            }
+        }
+    }
+
+    static Option<Map<Integer, Object>> bind(Var v1, Var v2, Map<Integer, Object> subst) {
+        Map<Integer, Object> bound = subst.put(v1.seq, v2);
+        final Option<Object> optMap1 = subst.get(-v1.seq - 1),
+                optMap2 = subst.get(-v2.seq - 1);
+        if (!optMap1.isEmpty()) {
+            // v1 had some attributes
+            bound = bound.remove(-v1.seq - 1); // remove them from the map
+            if (optMap2.isEmpty()) {
+                // v1 had no attributes: copy those from v1
+                bound = bound.put(-v2.seq - 1, optMap1.get());
+            } else {
+                // Combine v1's attributes into v2's
+                @SuppressWarnings("unchecked") final Map<String, Attribute> map1 =
+                        (Map<String, Attribute>) optMap1.get();
+                @SuppressWarnings("unchecked") Map<String, Attribute> map2 =
+                        (Map<String, Attribute>) optMap2.get();
+                for (final Tuple2<String, Attribute> e1 : map1) {
+                    final String domain = e1._1;
+                    final Option<Attribute> a2 = map2.get(domain);
+                    if (a2.isEmpty()) {
+                        // Copy a1's attribute to a2
+                        map2 = map2.put(domain, e1._2);
+                    } else {
+                        // validate compatibility
+                        final Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> optCompat =
+                                a2.get().combine(v2, e1._2, bound);
+                        if (optCompat.isEmpty()) return Option.none();
+                        final Tuple2<Option<Attribute>, Map<Integer, Object>> compat = optCompat.get();
+                        if (compat._1.isEmpty()) {
+                            map2 = map2.remove(domain);
+                        } else {
+                            map2 = map2.put(domain, compat._1.get());
+                        }
+                        bound = compat._2;
+                    }
+                }
+                bound = bound.put(-v2.seq - 1, map2);
+            }
+        }
+        return Option.of(bound);
+    }
+
+    static Option<Map<Integer, Object>> instantiate(Var v, Object o, Map<Integer, Object> subst) {
+        final Option<Object> optMap = subst.get(-v.seq - 1);
+        if (optMap.isEmpty()) {
+            return Option.of(subst.put(v.seq, o));
+        } else {
+            @SuppressWarnings("unchecked") final Map<String, Attribute> map =
+                    (Map<String, Attribute>) optMap.get();
+            final Option<Attribute> optDelegating = map.valuesIterator().find(Attribute::delegating);
+            if (!optDelegating.isEmpty()) {
+                return optDelegating.get().validate(v, o, subst);
+            } else {
+                Map<Integer, Object> inst = subst.put(v.seq, o);
+                for (final Attribute a : map.valuesIterator()) {
+                    final Option<Map<Integer, Object>> result = a.validate(v, o, inst);
+                    if (result.isEmpty()) return result;
+                    inst = result.get();
+                }
+                return Option.of(inst);
+            }
+        }
+    }
+
+    static Option<Map<Integer, Object>> unify(Object left, Object right, Map<Integer, Object> subst) {
+        left = walk(left, subst);
+        right = walk(right, subst);
+        if (left == right) return Option.of(subst);
+        if (left instanceof Var) {
+            final Var leftVar = (Var) left;
+            if (right instanceof Var) {
+                final Var rightVar = (Var) right;
+                final Var newVar, oldVar;
+                if (leftVar.seq < rightVar.seq) {
+                    oldVar = leftVar;
+                    newVar = rightVar;
+                } else if (leftVar.seq > rightVar.seq) {
+                    oldVar = rightVar;
+                    newVar = leftVar;
+                } else {
+                    return Option.of(subst);
+                }
+                // newVar binds to oldVar
+                return bind(newVar, oldVar, subst);
+            } else if (leftVar.occursIn(right, subst)) {
+                return Option.none();
+            } else {
+                return instantiate(leftVar, right, subst);
+            }
+        } else if (right instanceof Var) {
+            final Var rightVar = (Var) right;
+            if (rightVar.occursIn(left, subst)) {
+                return Option.none();
+            } else {
+                return instantiate(rightVar, left, subst);
+            }
+        } else if (left instanceof Cons) {
+            Map<Integer, Object> current = subst;
+            while (left instanceof Cons) {
+                final Cons leftCons = (Cons) left;
+                if (!(right instanceof Cons)) {
+                    if (right instanceof Var) break;
+                    return Option.none();
+                }
+                final Cons rightCons = (Cons) right;
+                final Option<Map<Integer, Object>> headResult = unify(leftCons.car, rightCons.car, current);
+                if (headResult.isEmpty()) return Option.none();
+                current = headResult.get();
+                left = walk(leftCons.cdr, current);
+                right = walk(rightCons.cdr, current);
+                if (left == right) return Option.of(current);
+            }
+            return unify(left, right, current);
+        } else {
+            return Objects.equals(left, right) ? Option.of(subst) : Option.none();
+        }
+    }
+
+    public static Stream<Object> run(Function<Var, Goal> body) {
+        final Var q = new Var(0);
+        final Map<Integer, Object> subst0 = TreeMap.of(0, q);
+        return Stream.ofAll(body.apply(q).apply(subst0)).map(subst -> walkDeep(q, subst));
+    }
+
+    static Tuple2<Map<String, List<Constraint>>, SortedSet<Integer>> augmentConstraints(int varSeq,
+                                                                                        Map<Integer, Object> subst,
+                                                                                        Map<String, List<Constraint>> start) {
+        Option<Object> optAttributes = subst.get(-varSeq - 1);
+        if (optAttributes.isEmpty()) return Tuple.of(start, TreeSet.empty());
+        Map<String, List<Constraint>> constraints = start;
+        SortedSet<Integer> otherVars = TreeSet.empty();
+        //noinspection unchecked
+        for (final Tuple2<String, Attribute> entry : (Map<String, Attribute>) optAttributes.get()) {
+            final String domain = entry._1;
+            final Option<List<Constraint>> seen = start.get(domain);
+            List<Constraint> update = seen.isEmpty() ? null : seen.get();
+            boolean updated = false;
+            for (final Constraint c : entry._2.constraints()) {
+                if (seen.isEmpty() || !seen.get().contains(c)) {
+                    update = (update == null ? List.of(c) : update.prepend(c));
+                    updated = true;
+                    otherVars = otherVars.union(varIndices(walkDeep(c.symbolicRepr(), subst)).remove(varSeq));
+                }
+            }
+            if (updated) constraints = constraints.put(domain, update);
+        }
+        return Tuple.of(constraints, otherVars);
+    }
+
+    //    static <K, T> Map<K, List<T>> mapUnion(Map<K, List<T>> first, Map<K, List<T>> second) {
+//        Map<K, List<T>> result = first;
+//        for (final Tuple2<K, List<T>> e1 : first) {
+//            final Option<List<T>> optL2 = second.get(e1._1);
+//            if (!optL2.isEmpty()) result = result.put(e1._1, e1._2.appendAll(optL2.get()));
+//        }
+//        for (final Tuple2<K, List<T>> e2 : second) {
+//            if (!first.containsKey(e2._1)) result = result.put(e2._1, e2._2);
+//        }
+//        return result;
+//    }
+//
+    static Map<String, List<Constraint>> collectConstraints(Object o, Map<Integer, Object> subst) {
+        Map<String, List<Constraint>> result = TreeMap.empty();
+        SortedSet<Integer> varsToGo = varIndices(o);
+        SortedSet<Integer> seenVars = TreeSet.empty();
+        while (!varsToGo.isEmpty()) {
+            SortedSet<Integer> otherVars = TreeSet.empty();
+            for (final Integer varSeq : varsToGo) {
+                final Tuple2<Map<String, List<Constraint>>, SortedSet<Integer>> step =
+                        augmentConstraints(varSeq, subst, result);
+                result = step._1;
+                otherVars = otherVars.union(step._2);
+            }
+            seenVars = seenVars.union(varsToGo);
+            varsToGo = otherVars.diff(seenVars);
+        }
+        return result;
+    }
+
+    public static Stream<Tuple2<Object, List<Cons>>> runC(Function<Var, Goal> body) {
+        final Var q = new Var(0);
+        final Map<Integer, Object> subst0 = TreeMap.of(0, q);
+        return Stream.ofAll(body.apply(q).apply(subst0)).map(subst -> {
+            Object o = walkDeep(q, subst);
+            return Tuple.of(o, collectConstraints(o, subst).toList()
+                    .map(e -> e._2.map(c -> Cons.th(walkDeep(c.symbolicRepr(), subst), e._1)))
+                    .flatMap(Function.identity()));
+        });
+    }
+
     @SuppressWarnings({"unused", "SuspiciousNameCombination"})
     public static abstract class Goal implements Function<Map<Integer, Object>, Series<Map<Integer, Object>>> {
 
@@ -489,6 +793,11 @@ public class Relish {
             }
         }
 
+        public static Goal seq(List<Goal> goals) {
+            if (goals.isEmpty()) return Success.INSTANCE;
+            return goals.reduceRight(Conj::new);
+        }
+
         public static Goal choice(Goal... goal) {
             final int len = goal.length;
             if (len == 0) return Failure.INSTANCE;
@@ -501,58 +810,6 @@ public class Relish {
             }
         }
 
-        static Option<Map<Integer, Object>> unify(Object left, Object right, Map<Integer, Object> subst) {
-            left = walk(left, subst);
-            right = walk(right, subst);
-            if (left == right) return Option.of(subst);
-            if (left instanceof Var) {
-                final Var leftVar = (Var) left;
-                if (right instanceof Var) {
-                    final Var rightVar = (Var) right;
-                    final Var newVar, oldVar;
-                    if (leftVar.seq < rightVar.seq) {
-                        oldVar = leftVar;
-                        newVar = rightVar;
-                    } else if (leftVar.seq > rightVar.seq) {
-                        oldVar = rightVar;
-                        newVar = leftVar;
-                    } else {
-                        return Option.of(subst);
-                    }
-                    return Option.of(subst.put(newVar.seq, oldVar));
-                } else if (leftVar.occursIn(right, subst)) {
-                    return Option.none();
-                } else {
-                    return Option.of(subst.put(leftVar.seq, right));
-                }
-            } else if (right instanceof Var) {
-                final Var rightVar = (Var) right;
-                if (rightVar.occursIn(left, subst)) {
-                    return Option.none();
-                } else {
-                    return Option.of(subst.put(rightVar.seq, left));
-                }
-            } else if (left instanceof Cons) {
-                Map<Integer, Object> current = subst;
-                while (left instanceof Cons) {
-                    final Cons leftCons = (Cons) left;
-                    if (!(right instanceof Cons)) {
-                        if (right instanceof Var) break;
-                        return Option.none();
-                    }
-                    final Cons rightCons = (Cons) right;
-                    final Option<Map<Integer, Object>> headResult = unify(leftCons.first, rightCons.first, current);
-                    if (headResult.isEmpty()) return Option.none();
-                    current = headResult.get();
-                    left = walk(leftCons.second, current);
-                    right = walk(rightCons.second, current);
-                    if (left == right) return Option.of(current);
-                }
-                return unify(left, right, current);
-            } else {
-                return Objects.equals(left, right) ? Option.of(subst) : Option.none();
-            }
-        }
 
         static class Unify extends Goal {
             final Object left, right;
@@ -564,7 +821,7 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Option<Map<Integer, Object>> result = unify(left, right, subst);
+                final Option<Map<Integer, Object>> result = Relish.unify(left, right, subst);
                 if (result.isEmpty()) {
                     return Series.empty();
                 } else {
@@ -715,12 +972,6 @@ public class Relish {
 
         public static Goal nilO(Object x) {
             return unify(x, Cons.NIL);
-        }
-
-        public static Stream<Object> run(Function<Var, Goal> body) {
-            final Var q = new Var(0);
-            final Map<Integer, Object> subst0 = TreeMap.of(0, q);
-            return Stream.ofAll(body.apply(q).apply(subst0)).map(subst -> walkDeep(q, subst));
         }
 
         public static Goal appendO(Object x, Object y, Object z) {
@@ -1105,7 +1356,7 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Option<Map<Integer, Object>> result = unify(w, f.apply(), subst);
+                final Option<Map<Integer, Object>> result = Relish.unify(w, f.apply(), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
         }
@@ -1127,7 +1378,7 @@ public class Relish {
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
                 final Object deref = walk(x, subst);
                 if (!clazz.isInstance(deref)) return Series.empty();
-                final Option<Map<Integer, Object>> result = unify(w, f.apply(clazz.cast(deref)), subst);
+                final Option<Map<Integer, Object>> result = Relish.unify(w, f.apply(clazz.cast(deref)), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
         }
@@ -1155,7 +1406,7 @@ public class Relish {
                 final Object derefY = walk(y, subst);
                 if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY)) return Series.empty();
                 final Option<Map<Integer, Object>> result =
-                        unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY)), subst);
+                        Relish.unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY)), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
         }
@@ -1190,7 +1441,7 @@ public class Relish {
                 if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY) ||
                         !clazzZ.isInstance(derefZ)) return Series.empty();
                 final Option<Map<Integer, Object>> result =
-                        unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ)), subst);
+                        Relish.unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ)), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
         }
@@ -1234,5 +1485,6 @@ public class Relish {
         public static Goal element(Object x, Seq<?> seq) {
             return new Element(x, seq);
         }
+
     }
 }

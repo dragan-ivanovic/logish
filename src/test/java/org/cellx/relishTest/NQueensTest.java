@@ -1,14 +1,14 @@
-package org.cellx.relish;
+package org.cellx.relishTest;
 
 import io.vavr.Tuple;
 import io.vavr.Tuple2;
 import io.vavr.collection.List;
 import io.vavr.collection.Stream;
+import org.cellx.relish.Relish;
 import org.junit.Test;
 
-import static org.cellx.relish.BaseTest.executeQuery;
 import static org.cellx.relish.Relish.Goal.*;
-import static org.cellx.relish.Relish.Goal.run;
+import static org.cellx.relish.Relish.run;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -29,12 +29,12 @@ public class NQueensTest {
                     seq(
                             appendO(prefix, Relish.Cons.th(suffix, cv), available),
                             not(fresh((r2v, c2v) -> seq(
-                                    memberO(Relish.Cons.list(r2v, c2v), queens),
+                                    memberO(Relish.Cons.th(c2v, r2v), queens),
                                     test(Integer.class, cv, r2v, c2v, (c, r2, c2) -> attacks(r, c, r2, c2))
                             ))),
                             fresh(rest -> seq(
                                     appendO(prefix, suffix, rest),
-                                    nQueens1(r + 1, n, Relish.Cons.th(queens, Relish.Cons.list(r, cv)), rest, board)
+                                    nQueens1(r + 1, n, Relish.Cons.th(queens, Relish.Cons.th(cv, r)), rest, board)
                             ))
                     ));
         });
@@ -42,7 +42,7 @@ public class NQueensTest {
 
     @Test
     public void testNQueens1() {
-        executeQuery("n_queens(4, Q)", 20,
+        BaseTest.executeQuery("n_queens(4, Q)", 20,
                 run(q -> nQueens(4, q)),
                 sols -> {
                     // 2 solutions
@@ -50,12 +50,12 @@ public class NQueensTest {
                     for (final Object sol : sols) {
                         final List<Tuple2<Integer, Integer>> typedSol =
                                 List.ofAll((Relish.Cons) sol).map(e -> {
-                                    final List<Integer> z = List.ofAll((Relish.Cons) e).map(x -> (Integer) x);
-                                    int r = z.head();
-                                    int c = z.tail().head();
+                                    final Relish.Cons z = (Relish.Cons) e;
+                                    int r = (Integer)z.car();
+                                    int c = (Integer)z.cdr();
                                     assertTrue(r >= 1 && r <= 4);
                                     assertTrue(c >= 1 && c <= 4);
-                                    return Tuple.of(z.head(), z.tail().head());
+                                    return Tuple.of(r, c);
                                 });
                         for (final Tuple2<Integer, Integer> pos : typedSol) {
                             typedSol.existsUnique(pos::equals);
@@ -69,7 +69,7 @@ public class NQueensTest {
 
     @Test
     public void testNQueens2() {
-        executeQuery("n_queens(5, Q)", 20,
+        BaseTest.executeQuery("n_queens(5, Q)", 20,
                 run(q -> nQueens(5, q)),
                 sols -> {
                     // 2 solutions
@@ -77,12 +77,12 @@ public class NQueensTest {
                     for (final Object sol : sols) {
                         final List<Tuple2<Integer, Integer>> typedSol =
                                 List.ofAll((Relish.Cons) sol).map(e -> {
-                                    final List<Integer> z = List.ofAll((Relish.Cons) e).map(x -> (Integer) x);
-                                    int r = z.head();
-                                    int c = z.tail().head();
+                                    final Relish.Cons z = (Relish.Cons) e;
+                                    int r = (Integer)z.car();
+                                    int c = (Integer)z.cdr();
                                     assertTrue(r >= 1 && r <= 5);
                                     assertTrue(c >= 1 && c <= 5);
-                                    return Tuple.of(z.head(), z.tail().head());
+                                    return Tuple.of(r, c);
                                 });
                         for (final Tuple2<Integer, Integer> pos : typedSol) {
                             typedSol.existsUnique(pos::equals);
