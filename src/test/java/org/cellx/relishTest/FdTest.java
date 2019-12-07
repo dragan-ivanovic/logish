@@ -256,12 +256,13 @@ public class FdTest {
         );
     }
 
-    //@Test
+    @Test
     public void sendMoreMoney() {
         // s=9, e=5, n=6, d=7, m=1, o=0, r=8, y=2
         executeQueryC("SEND + MORE = MONEY", 10,
                 runC(q -> fresh((s, e, n, d) -> fresh((m, o, r, y) -> seq(
-                        unify(q, Cons.list(s, e, n, d, m, o, r, y)),
+                        unify(q, Cons.list("=", Cons.list("s", "e", "n", "d", "m", "o", "r", "y"),
+                                Cons.list(s, e, n, d, m, o, r, y))),
                         domAll(List.rangeClosed(1, 9), s, m),
                         domAll(List.rangeClosed(0, 9), e, n, d, o, r, y),
                         allDifferentO(s, e, n, d, m, o, r, y),
