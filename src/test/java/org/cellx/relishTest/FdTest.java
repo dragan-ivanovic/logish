@@ -19,7 +19,7 @@ public class FdTest {
         System.out.println("## " + title + ": up to first " + n + " solution(s)");
         List<Tuple2<Object, List<Cons>>> taken = solutions.take(n).toList();
         taken.zipWithIndex().forEach(tuple2 -> {
-            final String lead = String.format("    %2d: ", tuple2._2);
+            final String lead = String.format("    %2d=> ", tuple2._2+1);
             System.out.print(lead);
             System.out.println(tuple2._1._1);
             if (!tuple2._1._2.isEmpty()) {
@@ -142,7 +142,7 @@ public class FdTest {
 
     @Test
     public void testIn5() {
-        executeQueryC("in(Q, 2, 4, 6, 8), in(Q, 0, 1, 2, 3, 4, 5), member(Q, [0, 1, 2, 3, 4, 5], 6, 7, 8)", 20,
+        executeQueryC("in(Q, [2, 4, 6, 8]), in(Q, [0, 1, 2, 3, 4, 5]), member(Q, [0, 1, 2, 3, 4, 5, 6, 7, 8])", 20,
                 runC(q -> seq(in(q, 2, 4, 6, 8), in(q, 0, 1, 2, 3, 4, 5),
                         memberO(q, Cons.list(0, 1, 2, 3, 4, 5, 6, 7, 8))))
         );
@@ -232,21 +232,38 @@ public class FdTest {
     }
 
     @Test
+    public void testSys1() {
+        executeQueryC("Q = [X, Y], X + 4 #= Y, X + Y #= 14, X::0..10, Y::0..10", 20,
+                runC(q -> fresh((x, y) -> seq(
+                        unify(q, Cons.list(x, y)),
+                        plusO(x, 4, y),
+                        plusO(x, y, 14),
+                        domAll(List.rangeClosed(0, 10), x, y)
+                )))
+        );
+    }
+
+    @Test
+    public void testSys2() {
+        executeQueryC("Q = [X, Y], X + 4 #= Y, X + Y #= 14, X::0..10, Y::0..10", 20,
+                runC(q -> fresh((x, y) -> seq(
+                        unify(q, Cons.list(x, y)),
+                        plusO(x, 4, y),
+                        plusO(x, y, 14),
+                        domAll(List.rangeClosed(0, 10), x, y),
+                        labeling(x, y)
+                )))
+        );
+    }
+
+    //@Test
     public void sendMoreMoney() {
+        // s=9, e=5, n=6, d=7, m=1, o=0, r=8, y=2
         executeQueryC("SEND + MORE = MONEY", 10,
                 runC(q -> fresh((s, e, n, d) -> fresh((m, o, r, y) -> seq(
                         unify(q, Cons.list(s, e, n, d, m, o, r, y)),
-                        // s=9, e=5, n=6, d=7, m=1, o=0, r=8, y=2
-//                        domAll(List.rangeClosed(1, 9), s, m),
-//                        domAll(List.rangeClosed(0, 9), e, n, d, o, r, y),
-                        in(s, 1, 2, 3, 4, 9),
-                        in(e, 0, 1, 2, 3, 5),
-                        in(n, 0, 1, 2, 3, 6),
-                        in(d, 0, 1, 2, 3, 7),
-                        in(m, -1, 2, 3, 4, 1),
-                        in(o, -1, 1, 2, 3, 0),
-                        in(r, 0, 1, 2, 3, 8),
-                        in(y, 0, 1, 3, 4, 2),
+                        domAll(List.rangeClosed(1, 9), s, m),
+                        domAll(List.rangeClosed(0, 9), e, n, d, o, r, y),
                         allDifferentO(s, e, n, d, m, o, r, y),
                         fresh((e1, e2, e3) -> seq(
                                 linearO(1000, s, 100, e, 10, n, 1, d, e1),

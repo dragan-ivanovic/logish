@@ -20,7 +20,7 @@ public class BaseTest {
     static List<Object> executeQuery(String title, int n, Stream<Object> solutions) {
         System.out.println("## " + title + ": up to first " + n + " solution(s)");
         List<Object> taken = solutions.take(n).toList();
-        taken.zipWithIndex().forEach(tuple2 -> System.out.println("    " + (tuple2._2 + 1) + ": " + tuple2._1));
+        taken.zipWithIndex().forEach(tuple2 -> System.out.println("    " + (tuple2._2 + 1) + "=> " + tuple2._1));
         System.out.println("total " + (taken.length()) + " solution(s)");
         System.out.println();
         return taken;

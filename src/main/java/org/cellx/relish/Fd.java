@@ -306,7 +306,9 @@ public class Fd {
                 subst1 = combination.get()._2;
             }
 
-            if (newConstraint.isEmpty()) return Series.empty();
+            if (newConstraint.isEmpty()) {
+                return Series.empty();
+            }
 
             return Series.of(new Propagator(subst1).input(newConstraint).solution());
         }
@@ -378,7 +380,8 @@ public class Fd {
         Map<Integer, List<AriConstraint>> varConstraints = TreeMap.empty();
         Set<Integer> instantiatedVars = TreeSet.empty();
         Set<Integer> excitedVars = TreeSet.empty();
-        final java.util.Queue<Constraint> queue = new LinkedList<>();
+        final java.util.Queue<Domain> domainQueue = new LinkedList<>();
+        final java.util.Queue<AriConstraint> constraintQueue = new LinkedList<>();
         final java.util.Queue<AriConstraint> propagationQueue = new LinkedList<>();
 
         Propagator input(Var v, int x) {
@@ -389,7 +392,6 @@ public class Fd {
 
         Propagator input(Domain dc) {
             int varSeq = walkVar(dc.variable(), subst).seq;
-            excitedVars = excitedVars.add(varSeq);
             varDomains = varDomains.put(varSeq, dc);
             return this;
         }
@@ -400,11 +402,7 @@ public class Fd {
 
         boolean add(Domain d) {
             if (d.isEmpty()) return false;
-            final Domain d0 = getDomain(d.variable());
-            if (equalValues(d0, d)) return true;
-            final Domain d1 = d.intersect(d0);
-            if (d1.isEmpty()) return false;
-            queue.add(d1);
+            domainQueue.add(d);
             return true;
         }
 
@@ -414,7 +412,7 @@ public class Fd {
         }
 
         void add(AriConstraint ac) {
-            queue.add(ac);
+            constraintQueue.add(ac);
         }
 
         Propagator(Map<Integer, Object> subst) {
@@ -479,15 +477,13 @@ public class Fd {
                     final List<AriConstraint> cs = getConstraints(varSeq);
                     varConstraints = varConstraints.put(varSeq, List.empty());
                     for (final AriConstraint c : cs) {
-                        if (queue.contains(c)) continue;
+                        if (propagationQueue.contains(c)) continue;
                         final Set<Integer> otherVarSeqs = c.vars().map(v -> walkVar(v, subst).seq)
                                 .filter(s -> s != varSeq);
                         for (final int otherVarSeq : otherVarSeqs) {
                             varConstraints = varConstraints.put(otherVarSeq,
                                     getConstraints(otherVarSeq).remove(c));
                         }
-                    }
-                    for (final AriConstraint c : cs) {
                         propagationQueue.add(c);
                     }
                 }
@@ -498,24 +494,23 @@ public class Fd {
 
                 excitedVars = TreeSet.empty();
 
-                while (!queue.isEmpty()) {
-                    final Constraint c = queue.remove();
-                    if (c instanceof Domain) {
-                        final Domain d = (Domain) c;
-                        if (d.isEmpty()) return false;
-                        final Var v = walkVar(d.variable(), subst);
-                        final Domain d0 = getDomain(v);
-                        if (!equalValues(d0, d)) {
-                            final Domain d1 = d.intersect(d0);
-                            if (d1.isEmpty()) return false;
-                            excitedVars = excitedVars.add(v.seq);
-                            varDomains = varDomains.put(v.seq, d1);
-                        }
-                    } else {
-                        final AriConstraint ac = (AriConstraint) c;
-                        for (int varSeq : ac.vars().map(v -> walkVar(v, subst).seq)) {
-                            varConstraints = varConstraints.put(varSeq, getConstraints(varSeq).prepend(ac));
-                        }
+                while (!constraintQueue.isEmpty()) {
+                    final AriConstraint ac = constraintQueue.remove();
+                    for (final int varSeq : ac.vars().map(v -> walkVar(v, subst).seq)) {
+                        varConstraints = varConstraints.put(varSeq, getConstraints(varSeq).prepend(ac));
+                    }
+                }
+
+                while (!domainQueue.isEmpty()) {
+                    final Domain d = domainQueue.remove();
+                    if (d.isEmpty()) return false;
+                    final Var v = walkVar(d.variable(), subst);
+                    final Domain d0 = getDomain(v);
+                    if (!equalValues(d0, d)) {
+                        final Domain d1 = d.intersect(d0);
+                        if (d1.isEmpty()) return false;
+                        varDomains = varDomains.put(v.seq, d1);
+                        excitedVars = excitedVars.add(v.seq);
                     }
                 }
             } while (!excitedVars.isEmpty());
@@ -620,6 +615,11 @@ public class Fd {
         }
 
         @Override
+        public String toString() {
+            return symbolicRepr().toString();
+        }
+
+        @Override
         public Set<Var> vars() {
             return HashSet.of(x, z);
         }
@@ -693,6 +693,11 @@ public class Fd {
         @Override
         public Cons symbolicRepr() {
             return Cons.th(Cons.NIL, "v+v=n", x, y, z);
+        }
+
+        @Override
+        public String toString() {
+            return symbolicRepr().toString();
         }
 
         @Override
@@ -773,42 +778,62 @@ public class Fd {
         }
 
         @Override
+        public String toString() {
+            return symbolicRepr().toString();
+        }
+
+        @Override
         public Set<Var> vars() {
             return HashSet.of(x, y, z);
         }
 
+//        boolean propagateXYZ(Var xv, Domain domX, Var yv, Domain domY, Var zv, Domain domZ, Propagator propagator) {
+//            if (domX.isEnumerated()) {
+//                if (domY.isEnumerated()) {
+//                    if (domZ.isEnumerated()) {
+//                        final List<Tuple3<Integer, Integer, Integer>> cXYZ = List.ofAll(
+//                                domX.values().toList().crossProduct(domY.values()).toList().crossProduct(domZ.values())
+//                                        .map(t -> Tuple.of(t._1._1, t._1._2, t._2))
+//                                        .filter(t -> t._1 + t._2 == t._3));
+//                        return propagator.add(Enumerated.of(xv, TreeSet.ofAll(cXYZ.map(Tuple3::_1)))) &&
+//                                propagator.add(Enumerated.of(yv, TreeSet.ofAll(cXYZ.map(Tuple3::_2)))) &&
+//                                propagator.add(Enumerated.of(zv, TreeSet.ofAll(cXYZ.map(Tuple3::_3))));
+//                    } else {
+//                        return propagator.add(Enumerated.of(zv,
+//                                TreeSet.ofAll(domX.values().toList().crossProduct(domY.values()).map(t -> t._1 + t._2)))
+//                                .intersect(domZ));
+//                    }
+//                } else if (domZ.isEnumerated()) {
+//                    return propagator.add(Enumerated.of(yv,
+//                            TreeSet.ofAll(domX.values().toList().crossProduct(domZ.values()).map(t -> t._2 - t._1)))
+//                            .intersect(domY));
+//                } else {
+//                    return true;
+//                }
+//            }
+//            if (domY.isEnumerated()) {
+//                if (domZ.isEnumerated()) {
+//                    return propagator.add(Enumerated.of(xv,
+//                            TreeSet.ofAll(domY.values().toList().crossProduct(domZ.values()).map(t -> t._2 - t._1)))
+//                            .intersect(domX));
+//                } else {
+//                    return true;
+//                }
+//            } else {
+//                return true;
+//            }
+//        }
+
+        // Weak variant -- never sets the domain as a (subset of a) Cartesian product of two variable domains
         boolean propagateXYZ(Var xv, Domain domX, Var yv, Domain domY, Var zv, Domain domZ, Propagator propagator) {
-            if (domX.isEnumerated()) {
-                if (domY.isEnumerated()) {
-                    if (domZ.isEnumerated()) {
-                        final List<Tuple3<Integer, Integer, Integer>> cXYZ = List.ofAll(
-                                domX.values().toList().crossProduct(domY.values()).toList().crossProduct(domZ.values())
-                                        .map(t -> Tuple.of(t._1._1, t._1._2, t._2))
-                                        .filter(t -> t._1 + t._2 == t._3));
-                        return propagator.add(Enumerated.of(xv, TreeSet.ofAll(cXYZ.map(Tuple3::_1)))) &&
-                                propagator.add(Enumerated.of(yv, TreeSet.ofAll(cXYZ.map(Tuple3::_2)))) &&
-                                propagator.add(Enumerated.of(zv, TreeSet.ofAll(cXYZ.map(Tuple3::_3))));
-                    } else {
-                        return propagator.add(Enumerated.of(zv,
-                                TreeSet.ofAll(domX.values().toList().crossProduct(domY.values()).map(t -> t._1 + t._2)))
-                                .intersect(domZ));
-                    }
-                } else if (domZ.isEnumerated()) {
-                    return propagator.add(Enumerated.of(yv,
-                            TreeSet.ofAll(domX.values().toList().crossProduct(domZ.values()).map(t -> t._2 - t._1)))
-                            .intersect(domY));
-                } else {
-                    return true;
-                }
-            }
-            if (domY.isEnumerated()) {
-                if (domZ.isEnumerated()) {
-                    return propagator.add(Enumerated.of(xv,
-                            TreeSet.ofAll(domY.values().toList().crossProduct(domZ.values()).map(t -> t._2 - t._1)))
-                            .intersect(domX));
-                } else {
-                    return true;
-                }
+            if (domX.isEnumerated() & domY.isEnumerated() && domZ.isEnumerated()) {
+                final List<Tuple3<Integer, Integer, Integer>> cXYZ = List.ofAll(
+                        domX.values().toList().crossProduct(domY.values()).toList().crossProduct(domZ.values())
+                                .map(t -> Tuple.of(t._1._1, t._1._2, t._2))
+                                .filter(t -> t._1 + t._2 == t._3));
+                return propagator.add(Enumerated.of(xv, TreeSet.ofAll(cXYZ.map(Tuple3::_1)))) &&
+                        propagator.add(Enumerated.of(yv, TreeSet.ofAll(cXYZ.map(Tuple3::_2)))) &&
+                        propagator.add(Enumerated.of(zv, TreeSet.ofAll(cXYZ.map(Tuple3::_3))));
             } else {
                 return true;
             }
@@ -817,7 +842,6 @@ public class Fd {
         boolean propagate2XZ(Var xv, Domain domX, Var zv, Domain domZ, Propagator propagator) {
             if (domX.isEnumerated()) {
                 if (domZ.isEnumerated()) {
-                    // final SortedSet<Integer> cZ = domZ.values().filter(z -> (z & 1) == 0);
                     final List<Tuple2<Integer, Integer>> cZX = List.ofAll(
                             domZ.values().filter(z -> (z & 1) == 0).toList().crossProduct(domX.values())
                                     .filter(t -> t._1 == 2 * t._2));
@@ -953,6 +977,11 @@ public class Fd {
         }
 
         @Override
+        public String toString() {
+            return symbolicRepr().toString();
+        }
+
+        @Override
         public boolean propagate(Propagator propagator) {
             return propagator.feed1(x, (xv, domX) -> {
                 if (domX.hasSolution()) {
@@ -983,6 +1012,11 @@ public class Fd {
         @Override
         public Cons symbolicRepr() {
             return Cons.th(Cons.NIL, "v!=v", x, y);
+        }
+
+        @Override
+        public String toString() {
+            return symbolicRepr().toString();
         }
 
         @Override
@@ -1324,6 +1358,11 @@ public class Fd {
         @Override
         public Cons symbolicRepr() {
             return Cons.th(Cons.NIL, "n*v=v", x, y, z);
+        }
+
+        @Override
+        public String toString() {
+            return symbolicRepr().toString();
         }
 
         boolean propagateYZ(Var yv, Domain domY, Var zv, Domain domZ, Propagator propagator) {
