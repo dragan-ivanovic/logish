@@ -236,8 +236,17 @@ public class FdTest {
         executeQueryC("SEND + MORE = MONEY", 10,
                 runC(q -> fresh((s, e, n, d) -> fresh((m, o, r, y) -> seq(
                         unify(q, Cons.list(s, e, n, d, m, o, r, y)),
-                        domAll(List.rangeClosed(1, 9), s, m),
-                        domAll(List.rangeClosed(0, 9), e, n, d, o, r, y),
+                        // s=9, e=5, n=6, d=7, m=1, o=0, r=8, y=2
+//                        domAll(List.rangeClosed(1, 9), s, m),
+//                        domAll(List.rangeClosed(0, 9), e, n, d, o, r, y),
+                        in(s, 1, 2, 3, 4, 9),
+                        in(e, 0, 1, 2, 3, 5),
+                        in(n, 0, 1, 2, 3, 6),
+                        in(d, 0, 1, 2, 3, 7),
+                        in(m, -1, 2, 3, 4, 1),
+                        in(o, -1, 1, 2, 3, 0),
+                        in(r, 0, 1, 2, 3, 8),
+                        in(y, 0, 1, 3, 4, 2),
                         allDifferentO(s, e, n, d, m, o, r, y),
                         fresh((e1, e2, e3) -> seq(
                                 linearO(1000, s, 100, e, 10, n, 1, d, e1),
