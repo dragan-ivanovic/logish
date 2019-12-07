@@ -884,7 +884,7 @@ public class Fd {
                 } else if (xv.seq == yv.seq) {
                     // *** Case: 2X = Z ***
                     propagator.add(new PlusVVV(xv, xv, zv)); // keep the constraint
-                    if (!propagator.isExcited(xv) && propagator.isExcited(zv)) {
+                    if (!propagator.isExcited(xv) && !propagator.isExcited(zv)) {
                         // The initial check of the constraint
                         return propagate2XZ(xv, domX, zv, domZ, propagator);
                     } else if (propagator.isExcited(xv) && propagator.isExcited(zv)) {
