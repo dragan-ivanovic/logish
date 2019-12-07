@@ -1,4 +1,4 @@
-package org.cellx.relish;
+package org.cellx.logish;
 
 import io.vavr.*;
 import io.vavr.collection.*;
@@ -11,7 +11,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
-public class Relish {
+public class Logish {
 
     @SuppressWarnings("unused")
     public static final class Cons implements Iterable<Object> {
@@ -821,7 +821,7 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Option<Map<Integer, Object>> result = Relish.unify(left, right, subst);
+                final Option<Map<Integer, Object>> result = Logish.unify(left, right, subst);
                 if (result.isEmpty()) {
                     return Series.empty();
                 } else {
@@ -1356,7 +1356,7 @@ public class Relish {
 
             @Override
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Option<Map<Integer, Object>> result = Relish.unify(w, f.apply(), subst);
+                final Option<Map<Integer, Object>> result = Logish.unify(w, f.apply(), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
         }
@@ -1378,7 +1378,7 @@ public class Relish {
             public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
                 final Object deref = walk(x, subst);
                 if (!clazz.isInstance(deref)) return Series.empty();
-                final Option<Map<Integer, Object>> result = Relish.unify(w, f.apply(clazz.cast(deref)), subst);
+                final Option<Map<Integer, Object>> result = Logish.unify(w, f.apply(clazz.cast(deref)), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
         }
@@ -1406,7 +1406,7 @@ public class Relish {
                 final Object derefY = walk(y, subst);
                 if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY)) return Series.empty();
                 final Option<Map<Integer, Object>> result =
-                        Relish.unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY)), subst);
+                        Logish.unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY)), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
         }
@@ -1441,7 +1441,7 @@ public class Relish {
                 if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY) ||
                         !clazzZ.isInstance(derefZ)) return Series.empty();
                 final Option<Map<Integer, Object>> result =
-                        Relish.unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ)), subst);
+                        Logish.unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ)), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
         }

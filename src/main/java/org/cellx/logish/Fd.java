@@ -1,15 +1,15 @@
-package org.cellx.relish;
+package org.cellx.logish;
 
 import io.vavr.*;
 import io.vavr.collection.*;
 import io.vavr.control.Option;
-import org.cellx.relish.Relish.*;
+import org.cellx.logish.Logish.*;
 
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Objects;
 
-import static org.cellx.relish.Relish.*;
+import static org.cellx.logish.Logish.*;
 
 @SuppressWarnings({"unused", "SuspiciousNameCombination"})
 public class Fd {

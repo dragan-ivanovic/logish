@@ -1,16 +1,16 @@
-package org.cellx.relishTest;
+package org.cellx.logishTest;
 
 import io.vavr.collection.List;
 import io.vavr.collection.Stream;
-import org.cellx.relish.Relish;
-import org.cellx.relish.Relish.Cons;
+import org.cellx.logish.Logish;
+import org.cellx.logish.Logish.Cons;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.function.Consumer;
 
-import static org.cellx.relish.Relish.Goal.*;
-import static org.cellx.relish.Relish.run;
+import static org.cellx.logish.Logish.Goal.*;
+import static org.cellx.logish.Logish.run;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -44,11 +44,11 @@ public class BaseTest {
                     Assert.assertTrue(sols.forAll(e -> e instanceof Cons));
                     final List<List<Object>> casted = sols.map(e -> List.ofAll((Cons) e));
                     for (List<List<Object>> group : List.of(casted.filter(e -> e.head().equals(3)),
-                            casted.filter(e -> e.head().equals(4)), casted.filter(e -> e.head() instanceof Relish.Var))) {
+                            casted.filter(e -> e.head().equals(4)), casted.filter(e -> e.head() instanceof Logish.Var))) {
                         assertEquals(3, group.length());
                         Assert.assertTrue(group.exists(e -> e.tail().head().equals("a")));
                         Assert.assertTrue(group.exists(e -> e.tail().head().equals("b")));
-                        Assert.assertTrue(group.exists(e -> e.tail().head() instanceof Relish.Var));
+                        Assert.assertTrue(group.exists(e -> e.tail().head() instanceof Logish.Var));
                     }
                 }
         );
@@ -73,7 +73,7 @@ public class BaseTest {
                 sols -> {
                     // 1 solution: _
                     assertEquals(1, sols.length());
-                    assertTrue(sols.head() instanceof Relish.Var);
+                    assertTrue(sols.head() instanceof Logish.Var);
                 }
         );
     }
@@ -216,9 +216,9 @@ public class BaseTest {
         );
     }
 
-    static Relish.Goal listOfO(Object x, Object e) {
+    static Logish.Goal listOfO(Object x, Object e) {
         return fresh(t -> conda(
-                clause(unify(x, Cons.NIL), Relish.Goal::success),
+                clause(unify(x, Cons.NIL), Logish.Goal::success),
                 clause(unify(x, Cons.th(t, e)), () -> listOfO(t, e)))
         );
     }
@@ -288,8 +288,8 @@ public class BaseTest {
                 sols -> {
                     // 3 solutions: _, _, and 1
                     assertEquals(3, sols.length());
-                    assertEquals(2, sols.filter(e -> e instanceof Relish.Var).length());
-                    assertEquals(List.of(1), sols.filter(e -> !(e instanceof Relish.Var)));
+                    assertEquals(2, sols.filter(e -> e instanceof Logish.Var).length());
+                    assertEquals(List.of(1), sols.filter(e -> !(e instanceof Logish.Var)));
                 }
         );
     }

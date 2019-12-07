@@ -1,17 +1,16 @@
-package org.cellx.relishTest;
+package org.cellx.logishTest;
 
 import io.vavr.Tuple2;
 import io.vavr.collection.List;
 import io.vavr.collection.Stream;
-import org.cellx.relish.Fd;
-import org.cellx.relish.Relish.Cons;
+import org.cellx.logish.Logish.Cons;
 import org.junit.Test;
 
 import java.util.function.Consumer;
 
-import static org.cellx.relish.Fd.*;
-import static org.cellx.relish.Relish.Goal.*;
-import static org.cellx.relish.Relish.runC;
+import static org.cellx.logish.Fd.*;
+import static org.cellx.logish.Logish.Goal.*;
+import static org.cellx.logish.Logish.runC;
 
 public class FdTest {
 
