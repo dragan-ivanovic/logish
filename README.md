@@ -61,7 +61,7 @@ logical goal to the left of `->`.  Here, the goal is `unify(q,
 its arguments.  The logical reading of `run(q -> unify(q, "World")`
 is: \`_There exists q such that q is equal to the string literal
 `"World"`._' In terms of a search, it can be formulated as: \`_Find q
-that satisfies goal `unify(q, "World")`_.` The obvious solution is for
+that satisfies goal `unify(q, "World")`_.\` The obvious solution is for
 the initially unknown variable `q` to become equal to string literal
 `"World"`.  This is the only solution for `q`, and the resulting
 `Stream` has exactly one member. Therefore, the program prints
@@ -74,12 +74,22 @@ A logic variable is an instance of class `Logish.Var`.  Like a
 mathematical variable, it serves as a placeholder for a value (an
 object).  Unlike Java variables, a logic variable is not a location in
 memory that stores the value: after its value has become known, it
-would never changes.  In logic programming, and therefore in _Logish_,
-the computation if effectivelly a search for values of the variables
-that satisfy the goal.
+never changes.  In logic programming, and therefore in _Logish_, the
+computation if effectivelly a search for values of the variables that
+satisfy the goal.
 
 As an example, a query:
+
 ```java
 run(q -> element(q, List.of(1, 2, 3)))
 ```
+
+returns (a stream of) all values of variable `q` for which goal `element(q,
+List.of(1, 2, 3))` succeeds.  Note that `List.of(1, 2, 3)` is a Java
+expression that creates an immutable list (an instance of
+_io.vavr.collection.List_) whose elements are integers 1, 2, and 3.  So, for
+which _q_ is this goal satisfied?  There are three solutions: _q_=1, _q_=2,
+and _q_=3, and so the resulting stream has three elements, 1, 2, and 3.
+
+
 

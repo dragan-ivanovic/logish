@@ -355,9 +355,8 @@ public class BaseTest {
         executeQuery("element(X, ${List.of(1, 2, 3)}", 20,
                 run(q -> element(q, List.of(1, 2, 3))),
                 sols -> {
-                    // 10 solutions: 1 .. 10
-                    assertEquals(10, sols.length());
-                    assertEquals(Stream.rangeClosed(1, 10).toList(), sols);
+                    assertEquals(3, sols.length());
+                    assertEquals(List.of(1, 2, 3), sols);
                 }
         );
     }
