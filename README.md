@@ -124,4 +124,15 @@ for these three cases:
     This is treated as structural unification, and will be described later in
     the text.
     
+It is, of course, perfectly possible to satisfy the goal without instantiating
+the variable.  For instance, query:
+
+```
+run(q -> success())
+```
+
+uses goal `success()` that always succeeds exactly once, which means that it
+returns a stream with a single element.  But what is that element like?  It is
+a logical variable (instance of _Logish.Var_) corresponding to _q_ itself,
+which, whose _toString()_ is `"_0"`.
 
