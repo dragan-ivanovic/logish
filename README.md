@@ -91,5 +91,16 @@ _io.vavr.collection.List_) whose elements are integers 1, 2, and 3.  So, for
 which _q_ is this goal satisfied?  There are three solutions: _q_=1, _q_=2,
 and _q_=3, and so the resulting stream has three elements, 1, 2, and 3.
 
+As in mathematics, logic variables remember when they refer to the same value:
+when we know or assume that _x_=_y_, then as soon as we learn _y_=3, we
+automatically have _x_=3 as well.  Therefore, the goal:
+
+```
+run(q -> seq(unify(q, x), element(x, List.of(1, 2, 3))))
+```
+
+where `seq(G1, G2)` is a composite goal that succeeds exactly when both _G1_
+and _G2_ succeed, produces exactly the same solution.
+
 
 
