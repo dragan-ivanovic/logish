@@ -46,7 +46,6 @@ import io.vavr.collection.Stream;
 public class MinimalLogish {
 
  public void main(String[] argv) {
-
    final Stream<Object> result = run(q -> unify(q, "World"));
    for (final Object o: result) {
      System.out.println("Hello, " + o + "!");
