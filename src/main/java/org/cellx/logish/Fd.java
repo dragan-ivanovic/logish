@@ -827,13 +827,11 @@ public class Fd {
         // Weak variant -- never sets the domain as a (subset of a) Cartesian product of two variable domains
         boolean propagateXYZ(Var xv, Domain domX, Var yv, Domain domY, Var zv, Domain domZ, Propagator propagator) {
             if (domX.isEnumerated() & domY.isEnumerated() && domZ.isEnumerated()) {
-                final List<Tuple3<Integer, Integer, Integer>> cXYZ = List.ofAll(
-                        domX.values().toList().crossProduct(domY.values()).toList().crossProduct(domZ.values())
-                                .map(t -> Tuple.of(t._1._1, t._1._2, t._2))
-                                .filter(t -> t._1 + t._2 == t._3));
-                return propagator.add(Enumerated.of(xv, TreeSet.ofAll(cXYZ.map(Tuple3::_1)))) &&
-                        propagator.add(Enumerated.of(yv, TreeSet.ofAll(cXYZ.map(Tuple3::_2)))) &&
-                        propagator.add(Enumerated.of(zv, TreeSet.ofAll(cXYZ.map(Tuple3::_3))));
+                final List<Tuple2<Integer, Integer>> cXY = List.ofAll(
+                        domX.values().toList().crossProduct(domY.values()).filter(t -> domZ.accepts(t._1 + t._2)));
+                return propagator.add(Enumerated.of(xv, TreeSet.ofAll(cXY.map(Tuple2::_1)))) &&
+                        propagator.add(Enumerated.of(yv, TreeSet.ofAll(cXY.map(Tuple2::_2)))) &&
+                        propagator.add(Enumerated.of(zv, TreeSet.ofAll(cXY.map(t -> t._1 + t._2))));
             } else {
                 return true;
             }
@@ -842,11 +840,9 @@ public class Fd {
         boolean propagate2XZ(Var xv, Domain domX, Var zv, Domain domZ, Propagator propagator) {
             if (domX.isEnumerated()) {
                 if (domZ.isEnumerated()) {
-                    final List<Tuple2<Integer, Integer>> cZX = List.ofAll(
-                            domZ.values().filter(z -> (z & 1) == 0).toList().crossProduct(domX.values())
-                                    .filter(t -> t._1 == 2 * t._2));
-                    return propagator.add(Enumerated.of(zv, TreeSet.ofAll(cZX.map(Tuple2::_1)))) &&
-                            propagator.add(Enumerated.of(xv, TreeSet.ofAll(cZX.map(Tuple2::_2))));
+                    final SortedSet<Integer> cZ = domZ.values().filter(z -> (z & 1) == 0 && domX.accepts(z / 2));
+                    return propagator.add(Enumerated.of(zv, cZ)) &&
+                            propagator.add(Enumerated.of(xv, cZ.map(z -> z/2)));
                 } else {
                     return propagator.add(Enumerated.of(zv, domX.values().map(x -> 2 * x)).intersect(domZ));
                 }
