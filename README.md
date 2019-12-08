@@ -91,9 +91,9 @@ _io.vavr.collection.List_) whose elements are integers 1, 2, and 3.  So, for
 which _q_ is this goal satisfied?  There are three solutions: _q_=1, _q_=2,
 and _q_=3, and so the resulting stream has three elements, 1, 2, and 3.
 
-At any point in the execution of a query, the value of a logical variable can
-be either unknown, or known.  In the former case we say that the variable is
-__instantiated__, and in the latter that it is __free__.
+At any point in the execution of a query, the object that a logical variable
+represents can be either known or unknown.  In the former case we say that the
+variable is __instantiated__, and in the latter that it is __free__.
 
 As in mathematics, logic variables remember when they refer to the same value:
 when we know or assume that _x_=_y_, then as soon as we learn _y_=3, we
@@ -113,6 +113,15 @@ can be arbitrary Java objects.
 Unification behaves exactly as Java's _java.util.Objects.equals(X, Y)_, except
 for these three cases:
 
-  * When both _X_ and _Y_ are variables whose value is not known; 
-
+  * When both _X_ and _Y_ are free variables.  In this case, _Logish_ proceeds
+    by making sure that any mention of _X_ is synonymous with _Y_ and
+    vice-versa.
+  * When _X_ is a free variable, and _Y_ is not.  In this case _Logish_
+    proceeds by making sure that any mention of _X_ is synonymous with the
+    value _Y_. The symmetrical case where _Y_ is a free variable and _X_ is
+    not is treated analogously.
+  * When both _X_ and _Y_ are instances of a special class _Logish.Cons_.
+    This is treated as structural unification, and will be described later in
+    the text.
+    
 
