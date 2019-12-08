@@ -20,9 +20,8 @@ performance, and hence the name.
     source file `Logish.java`, and the finite domain constraint solver
     resides in another file `Fd.java`.
   
-  - The usage is simple: it suffices to import a handful of classes
-    from `org.cellx.Logish` (`Goal`, `Cons`, `Var`) and static members
-    of `Logish.Goal`.
+  - The usage is simple: for basic use it suffices to import static
+    member `Logish.run`, and all static members of `Logish.Goal`.
   
   - _Logish_ internally uses [Vavr](https://www.vavr.io/) for
     immutable functional data structures in Java.  A query result is a
@@ -37,4 +36,19 @@ performance, and hence the name.
     `freeze` and the finite domain solver.
     
   
-      
+## Basic use
+
+```java
+import static org.cellx.Logish.run;
+import static org.cellx.Logish.Goal.*;
+import io.vavr.collection.Stream;
+
+// ...
+
+ final Stream<Object> result = run(q -> unify(q, "Hello, World!"));
+ for (final Object o: result) {
+   System.out.println(o);
+ }
+
+// ...
+```
