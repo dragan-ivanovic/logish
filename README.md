@@ -68,15 +68,15 @@ the initially unknown variable `q` to become equal to string literal
 `"Hello, World!"`.
 
 
-## Variables, goals and unification
+## Logic variables, goals and unification
 
-A logic variable is an instance of class `Logish.Var`.  Like a
+A **logic variable** is an instance of class `Logish.Var`.  Like a
 mathematical variable, it serves as a placeholder for a value (an
 object).  Unlike Java variables, a logic variable is not a location in
 memory that stores the value: after its value has become known, it
 never changes.  In logic programming, and therefore in _Logish_, the
-computation if effectivelly a search for values of the variables that
-satisfy the goal.
+computation if effectively a search for values of the variables that
+satisfy the **goal**.
 
 As an example, a query:
 
@@ -91,6 +91,10 @@ _io.vavr.collection.List_) whose elements are integers 1, 2, and 3.  So, for
 which _q_ is this goal satisfied?  There are three solutions: _q_=1, _q_=2,
 and _q_=3, and so the resulting stream has three elements, 1, 2, and 3.
 
+At any point in the execution of a query, the value of a logical variable can
+be either unknown, or known.  In the former case we say that the variable is
+__instantiated__, and in the latter that it is __free__.
+
 As in mathematics, logic variables remember when they refer to the same value:
 when we know or assume that _x_=_y_, then as soon as we learn _y_=3, we
 automatically have _x_=3 as well.  Therefore, the goal:
@@ -99,8 +103,16 @@ automatically have _x_=3 as well.  Therefore, the goal:
 run(q -> seq(unify(q, x), element(x, List.of(1, 2, 3))))
 ```
 
-where `seq(G1, G2)` is a composite goal that succeeds exactly when both _G1_
-and _G2_ succeed, produces exactly the same solution.
+(where `seq(G1, G2)` is a composite goal that succeeds exactly when both _G1_
+and _G2_ succeed), produces exactly the same solution.  Goal `unify(q, x)` has
+the same meaning as _q_=_x_ in mathematics, but we cannot use `=` or `==` in
+_Logish_ because these operators have a specific meaning in Java.  Goal
+`unify(X, Y)` is technically called the **unification** of _X_ and _Y_.  Both
+can be arbitrary Java objects.
 
+Unification behaves exactly as Java's _java.util.Objects.equals(X, Y)_, except
+for these three cases:
+
+  * When both _X_ and _Y_ are variables whose value is not known; 
 
 
