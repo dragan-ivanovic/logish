@@ -52,3 +52,9 @@ import io.vavr.collection.Stream;
 
 // ...
 ```
+
+In this example, method `run()` runs a query over a logical variable
+internally named `q`, and returns a stream of values of `q`.
+`unify(q, "Hello, world!")` is a logical _goal_ that unifies its
+arguments.  In this case, the initially unknown variable `q` receives
+value that is a string literal `"Hello, world!"`.
