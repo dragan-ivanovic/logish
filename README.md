@@ -133,6 +133,15 @@ run(q -> success())
 
 uses goal `success()` that always succeeds exactly once, which means that it
 returns a stream with a single element.  But what is that element like?  It is
-a logical variable (instance of _Logish.Var_) corresponding to _q_ itself,
-which, whose _toString()_ is `"_0"`.
+a logical variable corresponding to _q_ itself (instance of _Logish.Var_),
+whose _toString()_ is `"_0"`.  This reflects the general rule: variables that
+are instantiated are replaced by their values, while free variables remain in
+the result.  The non-negative integer following the underscore in the string
+representation of a free variable (which can be obtained using method
+_Logish.Var.seq()_ on the variable) serves to globally distinguish distinct
+variables in the result. The symbolic variable names, such as _q_ are just
+Java syntactical entities that are not available at run-time, and are anyway
+local.
+
+
 

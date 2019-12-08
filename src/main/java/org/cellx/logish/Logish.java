@@ -185,6 +185,8 @@ public class Logish {
             this.seq = seq;
         }
 
+        public int seq() { return seq; }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
