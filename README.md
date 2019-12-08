@@ -60,4 +60,4 @@ to the right of `->`).  `unify(q, "World")` is a logical _goal_ that
 unifies its arguments.  In this case, the initially unknown variable
 `q` becomes equal to string literal `"World"`.  This is the only
 solution for `q`, and the resulting `Stream` has exactly one
-member. Therefore, the program prints `"Hello, world!"`.
+member. Therefore, the program prints `"Hello, World!"`.
