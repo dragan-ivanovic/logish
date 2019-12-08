@@ -39,13 +39,13 @@ performance, and hence the name.
 ## Basic use
 
 ```java
-import static org.cellx.Logish.run;
-import static org.cellx.Logish.Goal.*;
+import static org.cellx.logish.Logish.run;
+import static org.cellx.logish.Logish.Goal.*;
 import io.vavr.collection.Stream;
 
 public class MinimalLogish {
 
- public void main(String[] argv) {
+ public static void main(String[] argv) {
    final Stream<Object> result = run(q -> unify(q, "World"));
    for (final Object o: result) {
      System.out.println("Hello, " + o + "!");
