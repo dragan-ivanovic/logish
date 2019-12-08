@@ -43,18 +43,22 @@ import static org.cellx.Logish.run;
 import static org.cellx.Logish.Goal.*;
 import io.vavr.collection.Stream;
 
-// ...
+public class MinimalLogish {
 
- final Stream<Object> result = run(q -> unify(q, "Hello, World!"));
- for (final Object o: result) {
-   System.out.println(o);
+ public void main(String[] argv) {
+
+   final Stream<Object> result = run(q -> unify(q, "World"));
+   for (final Object o: result) {
+     System.out.println("Hello, " + o + "!");
+   }
  }
-
-// ...
+}
 ```
 
 In this example, method `run()` runs a query over a logical variable
-internally named `q`, and returns a stream of values of `q`.
-`unify(q, "Hello, world!")` is a logical _goal_ that unifies its
-arguments.  In this case, the initially unknown variable `q` receives
-value that is a string literal `"Hello, world!"`.
+named `q`, and returns a stream of values of `q` (the scope of `q` is
+to the right of `->`).  `unify(q, "World")` is a logical _goal_ that
+unifies its arguments.  In this case, the initially unknown variable
+`q` becomes equal to string literal `"World"`.  This is the only
+solution for `q`, and the resulting `Stream` has exactly one
+member. Therefore, the program prints `"Hello, world!"`.
