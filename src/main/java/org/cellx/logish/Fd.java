@@ -627,11 +627,18 @@ public class Fd {
         boolean propagateXZ(Var xv, Domain domX, Var zv, Domain domZ, Propagator propagator) {
             if (domX.isEnumerated()) {
                 if (domZ.isEnumerated()) {
-                    final List<Tuple2<Integer, Integer>> cXZ =
-                            List.ofAll(domX.values().toList().crossProduct(domZ.values().iterator())
-                                    .filter(t -> t._1 + y == t._2));
-                    return propagator.add(Enumerated.of(xv, TreeSet.ofAll(cXZ.map(Tuple2::_1))).intersect(domX)) &&
-                            propagator.add(Enumerated.of(zv, TreeSet.ofAll(cXZ.map(Tuple2::_2))).intersect(domZ));
+                    final SortedSet<Integer> setX0 = domX.values();
+                    final SortedSet<Integer> setZ0 = domZ.values();
+                    SortedSet<Integer> setX1 = TreeSet.empty();
+                    SortedSet<Integer> setZ1 = TreeSet.empty();
+                    for (int x0 : setX0) {
+                        if (setZ0.contains(x0 + y)) {
+                            setX1 = setX1.add(x0);
+                            setZ1 = setZ1.add(x0 + y);
+                        }
+                    }
+                    return propagator.add(Enumerated.of(xv, setX1)) &&
+                            propagator.add(Enumerated.of(zv, setZ1));
                 } else {
                     return propagator.add(Enumerated.of(zv, domX.values().map(x -> x + y)).intersect(domZ));
                 }
@@ -708,12 +715,18 @@ public class Fd {
         boolean propagateXY(Var xv, Domain domX, Var yv, Domain domY, Propagator propagator) {
             if (domX.isEnumerated()) {
                 if (domY.isEnumerated()) {
-                    final List<Tuple2<Integer, Integer>> cXY = List.ofAll(
-                            domX.values().toList()
-                                    .crossProduct(domY.values().iterator())
-                                    .filter(t -> t._1 + t._2 == z));
-                    return propagator.add(Enumerated.of(xv, TreeSet.ofAll(cXY.map(Tuple2::_1)))) &&
-                            propagator.add(Enumerated.of(yv, TreeSet.ofAll(cXY.map(Tuple2::_2))));
+                    final SortedSet<Integer> setX0 = domX.values();
+                    final SortedSet<Integer> setY0 = domY.values();
+                    SortedSet<Integer> setX1 = TreeSet.empty();
+                    SortedSet<Integer> setY1 = TreeSet.empty();
+                    for (int x0 : setX0) {
+                        if (setY0.contains(z - x0)) {
+                            setX1 = setX1.add(x0);
+                            setY1 = setY1.add(z - x0);
+                        }
+                    }
+                    return propagator.add(Enumerated.of(xv, setX1)) &&
+                            propagator.add(Enumerated.of(yv, setY1));
                 } else {
                     return propagator.add(Enumerated.of(yv, domX.values().map(x -> z - x)).intersect(domY));
                 }
@@ -827,11 +840,24 @@ public class Fd {
         // Weak variant -- never sets the domain as a (subset of a) Cartesian product of two variable domains
         boolean propagateXYZ(Var xv, Domain domX, Var yv, Domain domY, Var zv, Domain domZ, Propagator propagator) {
             if (domX.isEnumerated() & domY.isEnumerated() && domZ.isEnumerated()) {
-                final List<Tuple2<Integer, Integer>> cXY = List.ofAll(
-                        domX.values().toList().crossProduct(domY.values()).filter(t -> domZ.accepts(t._1 + t._2)));
-                return propagator.add(Enumerated.of(xv, TreeSet.ofAll(cXY.map(Tuple2::_1)))) &&
-                        propagator.add(Enumerated.of(yv, TreeSet.ofAll(cXY.map(Tuple2::_2)))) &&
-                        propagator.add(Enumerated.of(zv, TreeSet.ofAll(cXY.map(t -> t._1 + t._2))));
+                final SortedSet<Integer> setX0 = domX.values();
+                final SortedSet<Integer> setY0 = domY.values();
+                final SortedSet<Integer> setZ0 = domZ.values();
+                SortedSet<Integer> setX1 = TreeSet.empty();
+                SortedSet<Integer> setY1 = TreeSet.empty();
+                SortedSet<Integer> setZ1 = TreeSet.empty();
+                for (int x0 : setX0) {
+                    for (int y0 : setY0) {
+                        if (setZ0.contains(x0 + y0)) {
+                            setX1 = setX1.add(x0);
+                            setY1 = setY1.add(y0);
+                            setZ1 = setZ1.add(x0 + y0);
+                        }
+                    }
+                }
+                return propagator.add(Enumerated.of(xv, setX1)) &&
+                        propagator.add(Enumerated.of(yv, setY1)) &&
+                        propagator.add(Enumerated.of(zv, setZ1));
             } else {
                 return true;
             }
@@ -842,7 +868,7 @@ public class Fd {
                 if (domZ.isEnumerated()) {
                     final SortedSet<Integer> cZ = domZ.values().filter(z -> (z & 1) == 0 && domX.accepts(z / 2));
                     return propagator.add(Enumerated.of(zv, cZ)) &&
-                            propagator.add(Enumerated.of(xv, cZ.map(z -> z/2)));
+                            propagator.add(Enumerated.of(xv, cZ.map(z -> z / 2)));
                 } else {
                     return propagator.add(Enumerated.of(zv, domX.values().map(x -> 2 * x)).intersect(domZ));
                 }
@@ -1364,11 +1390,20 @@ public class Fd {
         boolean propagateYZ(Var yv, Domain domY, Var zv, Domain domZ, Propagator propagator) {
             if (domY.isEnumerated()) {
                 if (domZ.isEnumerated()) {
-                    final List<Tuple2<Integer, Integer>> cZY = List.ofAll(
-                            domZ.values().filter(z -> z % x == 0).toList().crossProduct(domY.values())
-                                    .filter(t -> t._1 - x * t._2 == 0));
-                    return propagator.add(Enumerated.of(zv, TreeSet.ofAll(cZY.map(Tuple2::_1)))) &&
-                            propagator.add(Enumerated.of(yv, TreeSet.ofAll(cZY.map(Tuple2::_2))));
+                    final SortedSet<Integer> setY0 = domY.values();
+                    final SortedSet<Integer> setZ0 = domZ.values();
+                    SortedSet<Integer> setY1 = TreeSet.empty();
+                    SortedSet<Integer> setZ1 = TreeSet.empty();
+                    for (int z0 : setZ0) {
+                        if (z0 % x != 0) continue;
+                        final int y1 = z0 / x;
+                        if (setY0.contains(y1)) {
+                            setY1 = setY1.add(y1);
+                            setZ1 = setZ1.add(z0);
+                        }
+                    }
+                    return propagator.add(Enumerated.of(zv, setZ1)) &&
+                            propagator.add(Enumerated.of(yv, setY1));
                 } else {
                     return propagator.add(Enumerated.of(zv, domY.values().map(y -> x * y)).intersect(domZ));
                 }
