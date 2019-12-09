@@ -97,18 +97,23 @@ variable is __instantiated__, and in the latter that it is __free__.
 
 As in mathematics, logic variables remember when they refer to the same value:
 when we know or assume that _x_=_y_, then as soon as we learn _y_=3, we
-automatically have _x_=3 as well.  Therefore, the goal:
+automatically have _x_=3 as well.  Let us now take a look at the following
+query:
 
 ```
-run(q -> seq(unify(q, x), element(x, List.of(1, 2, 3))))
+run(q -> fresh(x -> seq(unify(q, x), element(x, List.of(1, 2, 3)))))
 ```
 
-(where `seq(G1, G2)` is a composite goal that succeeds exactly when both _G1_
-and _G2_ succeed), produces exactly the same solution.  Goal `unify(q, x)` has
-the same meaning as _q_=_x_ in mathematics, but we cannot use `=` or `==` in
-_Logish_ because these operators have a specific meaning in Java.  Goal
-`unify(X, Y)` is technically called the **unification** of _X_ and _Y_.  Both
-can be arbitrary Java objects.
+We have two novelties here.  The first one is `fresh(x -> G)` that creates a
+fresh free variable and passes it to _G_ in _x_.  And the second one
+is  `seq(G1, G2)`, a composite goal that succeeds exactly when both
+_G1_ and _G2_ succeed.
+
+This query produces exactly the same solutions as the previous one.  Goal
+`unify(q, x)` has the same meaning as _q_=_x_ in mathematics, but we cannot
+use `=` or `==` in _Logish_ because these operators have a specific meaning in
+Java.  Goal `unify(X, Y)` is technically called the **unification** of _X_ and
+_Y_.  Both can be arbitrary Java objects.
 
 Unification behaves exactly as Java's _java.util.Objects.equals(X, Y)_, except
 for these three cases:
@@ -139,9 +144,21 @@ are instantiated are replaced by their values, while free variables remain in
 the result.  The non-negative integer following the underscore in the string
 representation of a free variable (which can be obtained using method
 _Logish.Var.seq()_ on the variable) serves to globally distinguish distinct
-variables in the result. The symbolic variable names, such as _q_ are just
-Java syntactical entities that are not available at run-time, and are anyway
-local.
+variables in the result. The symbolic variable names, such as _q_, exist only
+at Java compile time, and are not available at run-time.
+
+Each `run()` query gives one variable "for free", which is reported back. As
+seen before, if we need more variables, we can use `fresh()`.  But, to make
+fresh variables really usable, we need to look at _Logish.Cons_.
+
+## Consing
 
 
+
+```
+member(q -> fresh((x, y) -> seq(
+        element(x, List.of(-1, 0, 1)),
+        element(y, List.of(2, 3, 4)),
+        
+```
 
