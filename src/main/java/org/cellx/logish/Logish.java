@@ -178,31 +178,33 @@ public class Logish {
         }
     }
 
-    public final static class Var {
-        final int seq;
+    public final static class Var implements Comparable<Var> {
+        final int index;
 
-        Var(int seq) {
-            this.seq = seq;
+        Var(int index) {
+            this.index = index;
         }
 
-        public int seq() { return seq; }
+        public int index() {
+            return index;
+        }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof Var)) return false;
             Var var = (Var) o;
-            return seq == var.seq;
+            return index == var.index;
         }
 
         @Override
         public int hashCode() {
-            return seq;
+            return index;
         }
 
         @Override
         public String toString() {
-            return "_" + seq;
+            return "_" + index;
         }
 
         public boolean occursIn(Object term, Map<Integer, Object> subst) {
@@ -212,10 +214,15 @@ public class Logish {
                 return exists(walked, e -> occursIn(e, subst));
             } else return false;
         }
+
+        @Override
+        public int compareTo(Var o) {
+            return this.index - o.index;
+        }
     }
 
     public static SortedSet<Integer> varIndices(Object o) {
-        if (o instanceof Var) return TreeSet.of(((Var) o).seq);
+        if (o instanceof Var) return TreeSet.of(((Var) o).index);
         if (!(o instanceof Cons)) return TreeSet.empty();
         SortedSet<Integer> current = TreeSet.empty();
         while (o instanceof Cons) {
@@ -236,29 +243,34 @@ public class Logish {
 
     public static Object walk(Object term, Map<Integer, Object> subst) {
         while (term instanceof Var) {
-            final Option<Object> mapsTo = subst.get(((Var) term).seq);
-            if (mapsTo.isEmpty()) break;
-            final Object newTerm = mapsTo.get();
-            if (newTerm == term) break;
-            term = newTerm;
+            final Object o = subst.get(((Var) term).index).get();
+            if (o == term) break;
+            term = o;
         }
         return term;
     }
 
     public static Var walkVar(Var v, Map<Integer, Object> subst) {
-        int prevSeq = v.seq;
-        final Option<Object> o0 = subst.get(prevSeq);
-        if (o0.isEmpty()) return v;
-        Object t = o0.get();
+        int prevSeq = v.index;
+        Object t = subst.get(prevSeq).get();
         while (t instanceof Var) {
             v = (Var) t;
-            if (v.seq == prevSeq) break;
-            prevSeq = v.seq;
-            final Option<Object> o = subst.get(prevSeq);
-            if (o.isEmpty()) break;
-            t = o.get();
+            if (v.index == prevSeq) break;
+            prevSeq = v.index;
+            t = subst.get(prevSeq).get();
         }
         return v;
+    }
+
+    public static int walkVarIndex(int varIndex, Map<Integer, Object> subst) {
+        Object t = subst.get(varIndex).get();
+        while (t instanceof Var) {
+            final int nextVarIndex = ((Var) t).index;
+            if (nextVarIndex == varIndex) break;
+            varIndex = nextVarIndex;
+            t = subst.get(varIndex).get();
+        }
+        return varIndex;
     }
 
     public static Object walkDeep(Object term0, Map<Integer, Object> subst) {
@@ -326,7 +338,7 @@ public class Logish {
         }
 
         public static <T> Series<T> of(Option<T> option) {
-            return option.isEmpty()? Series.empty(): Series.singleton(option.get());
+            return option.isEmpty() ? Series.empty() : Series.singleton(option.get());
         }
 
         public static <T> Series<T> suspension(Supplier<Series<T>> supplier) {
@@ -473,7 +485,7 @@ public class Logish {
     }
 
     public static Option<Attribute> getAttribute(Var v, Map<Integer, Object> subst, String domain) {
-        return getAttribute(v.seq, subst, domain);
+        return getAttribute(v.index, subst, domain);
     }
 
     public static Option<Attribute> getAttribute(int varSeq, Map<Integer, Object> subst, String domain) {
@@ -488,7 +500,7 @@ public class Logish {
 
     public static Map<Integer, Object> setAttribute(Var v, Map<Integer, Object> subst,
                                                     String domain, Attribute attribute) {
-        return setAttribute(v.seq, subst, domain, attribute);
+        return setAttribute(v.index, subst, domain, attribute);
     }
 
     public static Map<Integer, Object> setAttribute(int varSeq, Map<Integer, Object> subst,
@@ -504,7 +516,7 @@ public class Logish {
 
     public static Map<Integer, Object> removeAttribute(Var v, Map<Integer, Object> subst,
                                                        String domain) {
-        return removeAttribute(v.seq, subst, domain);
+        return removeAttribute(v.index, subst, domain);
     }
 
     public static Map<Integer, Object> removeAttribute(int varSeq, Map<Integer, Object> subst,
@@ -524,15 +536,15 @@ public class Logish {
     }
 
     static Option<Map<Integer, Object>> bind(Var v1, Var v2, Map<Integer, Object> subst) {
-        Map<Integer, Object> bound = subst.put(v1.seq, v2);
-        final Option<Object> optMap1 = subst.get(-v1.seq - 1),
-                optMap2 = subst.get(-v2.seq - 1);
+        Map<Integer, Object> bound = subst.put(v1.index, v2);
+        final Option<Object> optMap1 = subst.get(-v1.index - 1),
+                optMap2 = subst.get(-v2.index - 1);
         if (!optMap1.isEmpty()) {
             // v1 had some attributes
-            bound = bound.remove(-v1.seq - 1); // remove them from the map
+            bound = bound.remove(-v1.index - 1); // remove them from the map
             if (optMap2.isEmpty()) {
                 // v1 had no attributes: copy those from v1
-                bound = bound.put(-v2.seq - 1, optMap1.get());
+                bound = bound.put(-v2.index - 1, optMap1.get());
             } else {
                 // Combine v1's attributes into v2's
                 @SuppressWarnings("unchecked") final Map<String, Attribute> map1 =
@@ -559,16 +571,16 @@ public class Logish {
                         bound = compat._2;
                     }
                 }
-                bound = bound.put(-v2.seq - 1, map2);
+                bound = bound.put(-v2.index - 1, map2);
             }
         }
         return Option.of(bound);
     }
 
     static Option<Map<Integer, Object>> instantiate(Var v, Object o, Map<Integer, Object> subst) {
-        final Option<Object> optMap = subst.get(-v.seq - 1);
+        final Option<Object> optMap = subst.get(-v.index - 1);
         if (optMap.isEmpty()) {
-            return Option.of(subst.put(v.seq, o));
+            return Option.of(subst.put(v.index, o));
         } else {
             @SuppressWarnings("unchecked") final Map<String, Attribute> map =
                     (Map<String, Attribute>) optMap.get();
@@ -576,7 +588,7 @@ public class Logish {
             if (!optDelegating.isEmpty()) {
                 return optDelegating.get().validate(v, o, subst);
             } else {
-                Map<Integer, Object> inst = subst.put(v.seq, o);
+                Map<Integer, Object> inst = subst.put(v.index, o);
                 for (final Attribute a : map.valuesIterator()) {
                     final Option<Map<Integer, Object>> result = a.validate(v, o, inst);
                     if (result.isEmpty()) return result;
@@ -596,10 +608,10 @@ public class Logish {
             if (right instanceof Var) {
                 final Var rightVar = (Var) right;
                 final Var newVar, oldVar;
-                if (leftVar.seq < rightVar.seq) {
+                if (leftVar.index < rightVar.index) {
                     oldVar = leftVar;
                     newVar = rightVar;
-                } else if (leftVar.seq > rightVar.seq) {
+                } else if (leftVar.index > rightVar.index) {
                     oldVar = rightVar;
                     newVar = leftVar;
                 } else {

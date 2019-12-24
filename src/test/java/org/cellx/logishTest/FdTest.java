@@ -220,7 +220,7 @@ public class FdTest {
 
     @Test
     public void testPlus6() {
-        executeQueryC("X + Y #= Q, Y::[1, 3, 5], X = 9, Y + 1 #= 4", 20,
+        executeQueryC("X + Y #= Q, Y::[1, 3, 5], X = 9, Y + Q #= 19", 20,
                 runC(q -> fresh((x, y) -> seq(
                         plusO(x, y, q),
                         in(y, 1, 3, 5),

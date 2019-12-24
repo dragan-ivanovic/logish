@@ -2,12 +2,18 @@ package org.cellx.logish;
 
 import io.vavr.*;
 import io.vavr.collection.*;
+import io.vavr.collection.HashSet;
+import io.vavr.collection.List;
+import io.vavr.collection.Map;
+import io.vavr.collection.Set;
+import io.vavr.collection.SortedMap;
+import io.vavr.collection.SortedSet;
+import io.vavr.collection.TreeMap;
+import io.vavr.collection.TreeSet;
 import io.vavr.control.Option;
 import org.cellx.logish.Logish.*;
 
-import java.util.Arrays;
-import java.util.LinkedList;
-import java.util.Objects;
+import java.util.*;
 
 import static org.cellx.logish.Logish.*;
 
@@ -16,10 +22,10 @@ public class Fd {
 
     static final String DOM_DOMAIN = "fd:";
 
-    static abstract class Domain implements Constraint, Attribute {
+    static abstract class FdDomain implements Constraint, Attribute {
         abstract boolean isEmpty();
 
-        abstract Domain intersect(Domain other);
+        abstract FdDomain intersect(FdDomain other);
 
         abstract SortedSet<Integer> values();
 
@@ -27,7 +33,7 @@ public class Fd {
 
         abstract boolean accepts(Integer x);
 
-        abstract boolean isEnumerated();
+        abstract boolean isDefinite();
 
         abstract int getLowerBound();
 
@@ -49,7 +55,7 @@ public class Fd {
         @Override
         final public Option<Map<Integer, Object>> validate(Var v, Object o, Map<Integer, Object> subst) {
             if (!(o instanceof Integer && accepts((Integer) o))) return Option.none();
-            return new Propagator(subst).input(v, (Integer) o).solution();
+            return Solver.instantiate(v, (Integer) o, subst);
         }
 
         @Override
@@ -59,20 +65,20 @@ public class Fd {
 
         @Override
         final public Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> combine(Var v, Attribute other, Map<Integer, Object> subst) {
-            final Domain combined = intersect((Domain) other);
+            final FdDomain combined = intersect((FdDomain) other);
             return combined.isEmpty() ? Option.none() : Option.of(Tuple.of(Option.of(combined), subst));
         }
     }
 
-    static class SomeInteger extends Domain {
+    static class AnyInteger extends FdDomain {
         final Var v;
 
-        private SomeInteger(Var v) {
+        private AnyInteger(Var v) {
             this.v = v;
         }
 
-        static SomeInteger of(Var v) {
-            return new SomeInteger(v);
+        static AnyInteger of(Var v) {
+            return new AnyInteger(v);
         }
 
         @Override
@@ -91,7 +97,7 @@ public class Fd {
         }
 
         @Override
-        boolean isEnumerated() {
+        boolean isDefinite() {
             return false;
         }
 
@@ -116,7 +122,7 @@ public class Fd {
         }
 
         @Override
-        Domain intersect(Domain other) {
+        FdDomain intersect(FdDomain other) {
             return other;
         }
 
@@ -148,8 +154,8 @@ public class Fd {
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
-            if (!(o instanceof SomeInteger)) return false;
-            SomeInteger that = (SomeInteger) o;
+            if (!(o instanceof AnyInteger)) return false;
+            AnyInteger that = (AnyInteger) o;
             return v.equals(that.v);
         }
 
@@ -159,31 +165,41 @@ public class Fd {
         }
     }
 
-    static class Enumerated extends Domain {
+    static class Definite extends FdDomain {
         final Var v;
         final SortedSet<Integer> domain;
 
-        private Enumerated(Var v, SortedSet<Integer> domain) {
+        private Definite(Var v, SortedSet<Integer> domain) {
             this.v = v;
             this.domain = domain;
         }
 
-        public static Enumerated of(Var v, int... values) {
-            return new Enumerated(v, TreeSet.ofAll(values));
+        public static Definite of(Var v, int... values) {
+            return new Definite(v, TreeSet.ofAll(values));
         }
 
-        public static Enumerated of(Var v, SortedSet<Integer> values) {
-            return new Enumerated(v, values);
+        public static Definite of(Var v, SortedSet<Integer> values) {
+            return new Definite(v, values);
         }
+
+        static final int MAX_TO_STRING = 32;
 
         @Override
         public String toString() {
-            final StringBuilder builder = new StringBuilder("{");
+            final StringBuilder builder = new StringBuilder("[");
+            final int size = values().size();
+            builder.append(size);
+            builder.append("]{");
             boolean isFirst = true;
+            int count = 0;
             for (Integer x : values()) {
                 if (!isFirst) builder.append(", ");
                 builder.append(x);
                 isFirst = false;
+                if (++count == MAX_TO_STRING) {
+                    if (count < size) builder.append(", ...");
+                    break;
+                }
             }
             return builder.append("}").toString();
         }
@@ -194,7 +210,7 @@ public class Fd {
         }
 
         @Override
-        boolean isEnumerated() {
+        boolean isDefinite() {
             return true;
         }
 
@@ -250,16 +266,16 @@ public class Fd {
         }
 
         @Override
-        public Domain intersect(Domain other) {
-            if (!other.isEnumerated()) return this;
-            else return new Enumerated(v, domain.intersect(((Enumerated) other).domain));
+        public FdDomain intersect(FdDomain other) {
+            if (!other.isDefinite()) return this;
+            else return new Definite(v, domain.intersect(((Definite) other).domain));
         }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
-            if (!(o instanceof Enumerated)) return false;
-            Enumerated that = (Enumerated) o;
+            if (!(o instanceof Definite)) return false;
+            Definite that = (Definite) o;
             return v.equals(that.v) &&
                     domain.equals(that.domain);
         }
@@ -272,37 +288,37 @@ public class Fd {
 
     static class DomGoal extends Goal {
         final Var v0;
-        final Domain domain;
+        final FdDomain fdDomain;
 
-        DomGoal(Var v, Domain domain) {
+        DomGoal(Var v, FdDomain fdDomain) {
             this.v0 = v;
-            this.domain = domain;
+            this.fdDomain = fdDomain;
         }
 
         @Override
         public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
             // Fail immediately if the constraint is empty
-            if (domain.isEmpty()) return Series.empty();
+            if (fdDomain.isEmpty()) return Series.empty();
 
             final Object o = walk(v0, subst);
             if (o instanceof Integer) {
-                return domain.accepts((Integer) o) ? Series.singleton(subst) : Series.empty();
+                return fdDomain.accepts((Integer) o) ? Series.singleton(subst) : Series.empty();
             } else if (!(o instanceof Var)) {
                 return Series.empty();
             }
 
-            final Domain newConstraint;
+            final FdDomain newConstraint;
             final Var v = (Var) o;
             final Option<Attribute> optOldDomain = getAttribute(v, subst, DOM_DOMAIN);
             final Map<Integer, Object> subst1;
             if (optOldDomain.isEmpty()) {
-                newConstraint = domain;
+                newConstraint = fdDomain;
                 subst1 = subst;
             } else {
                 final Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> combination =
-                        optOldDomain.get().combine(v, domain, subst);
+                        optOldDomain.get().combine(v, fdDomain, subst);
                 if (combination.isEmpty()) return Series.empty();
-                newConstraint = (Domain) combination.get()._1.get();
+                newConstraint = (FdDomain) combination.get()._1.get();
                 subst1 = combination.get()._2;
             }
 
@@ -310,17 +326,17 @@ public class Fd {
                 return Series.empty();
             }
 
-            return Series.of(new Propagator(subst1).input(newConstraint).solution());
+            return Series.of(Solver.addDomain(newConstraint, subst));
         }
     }
 
     public static Goal dom(Var v, Seq<Integer> elements) {
-        return new DomGoal(v, new Enumerated(v, TreeSet.ofAll(elements)));
+        return new DomGoal(v, new Definite(v, TreeSet.ofAll(elements)));
     }
 
     public static Goal domAll(Seq<Integer> elements, Var... vars) {
         return Goal.seq(List.ofAll(Arrays.stream(vars))
-                .map(v -> new DomGoal(v, new Enumerated(v, TreeSet.ofAll(elements)))));
+                .map(v -> new DomGoal(v, new Definite(v, TreeSet.ofAll(elements)))));
     }
 
     public static Goal in(Var v, int... elements) {
@@ -328,17 +344,17 @@ public class Fd {
     }
 
     public static Goal range(Var v, int lb, int ub) {
-        return new DomGoal(v, new Enumerated(v, TreeSet.rangeClosed(lb, ub)));
+        return new DomGoal(v, new Definite(v, TreeSet.rangeClosed(lb, ub)));
     }
 
     // -- Arithmetic constraints --
 
     public static final String ARI_DOMAIN = "fda:";
 
-    static class AriAttribute implements Attribute {
-        final List<AriConstraint> constraints;
+    static class FdAttribute implements Attribute {
+        final List<FdConstraint> constraints;
 
-        public AriAttribute(List<AriConstraint> constraints) {
+        public FdAttribute(List<FdConstraint> constraints) {
             this.constraints = constraints;
         }
 
@@ -352,171 +368,328 @@ public class Fd {
             return Option.of(subst);
         }
 
-        @SuppressWarnings("RedundantCast")
         @Override
         public List<Constraint> constraints() {
-            return constraints.map(c -> (Constraint) c);
+            return List.narrow(constraints);
         }
 
         @Override
         public Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> combine(Var v, Attribute other, Map<Integer, Object> subst) {
-            final AriAttribute otherAri = (AriAttribute) other;
+            final FdAttribute otherAri = (FdAttribute) other;
             return Option.of(Tuple.of(
-                    Option.of(new AriAttribute(constraints.appendAll(otherAri.constraints.filter(c -> !constraints.contains(c))))),
+                    Option.of(new FdAttribute(constraints.appendAll(otherAri.constraints.filter(c -> !constraints.contains(c))))),
                     subst
             ));
         }
     }
 
-    interface AriConstraint extends Constraint {
+    interface FdConstraint extends Constraint {
+        /**
+         * Gets the variables over which this constraint ranges.
+         *
+         * @return The set of variables.
+         */
         Set<Var> vars();
 
-        boolean propagate(Propagator propagator);
+        void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom);
+
+        /**
+         * Tries to propagate the constraint.
+         *
+         * @param solver Solver instance
+         * @return false if the problem is unsatisfiable, true otherwise
+         */
+        boolean propagate(Solver solver);
     }
 
-    static class Propagator {
+
+    static boolean isEmpty(Option<SortedSet<Integer>> dom) {
+        return !dom.isEmpty() && dom.get().isEmpty();
+    }
+
+    static boolean hasSolution(Option<SortedSet<Integer>> dom) {
+        return !dom.isEmpty() && dom.get().size() == 1;
+    }
+
+    static int solution(Option<SortedSet<Integer>> dom) {
+        return dom.get().head();
+    }
+
+    static boolean isDefinite(Option<SortedSet<Integer>> dom) {
+        return !dom.isEmpty();
+    }
+
+    /**
+     * Finite constraint solver.
+     */
+    static class Solver {
+
+        static <U extends Comparable<U>> SortedSet<U> emptySet() {
+            return TreeSet.empty();
+        }
+
+        static <U extends Comparable<U>, V> SortedMap<U, V> emptyMap() {
+            return TreeMap.empty();
+        }
+
+        /**
+         * The original substitution under which this solver operates.
+         */
         final Map<Integer, Object> subst;
-        Map<Integer, Domain> varDomains = TreeMap.empty();
-        Map<Integer, List<AriConstraint>> varConstraints = TreeMap.empty();
-        Set<Integer> instantiatedVars = TreeSet.empty();
-        Set<Integer> excitedVars = TreeSet.empty();
-        final java.util.Queue<Domain> domainQueue = new LinkedList<>();
-        final java.util.Queue<AriConstraint> constraintQueue = new LinkedList<>();
-        final java.util.Queue<AriConstraint> propagationQueue = new LinkedList<>();
 
-        Propagator input(Var v, int x) {
-            excitedVars = excitedVars.add(v.seq);
-            varDomains = varDomains.put(v.seq, Enumerated.of(v, x));
-            return this;
-        }
+        // ---------- Variable Constraints ----------
+        /**
+         * Mapping from variable indices to lists of constraints that subscribe to these variables.
+         */
+        Map<Integer, List<FdConstraint>> varConstraints = emptyMap();
 
-        Propagator input(Domain dc) {
-            int varSeq = walkVar(dc.variable(), subst).seq;
-            varDomains = varDomains.put(varSeq, dc);
-            return this;
-        }
-
-        void excite(Var v) {
-            excitedVars = excitedVars.add(v.seq);
-        }
-
-        boolean add(Domain d) {
-            if (d.isEmpty()) return false;
-            domainQueue.add(d);
-            return true;
-        }
-
-        Propagator input(AriConstraint ac) {
-            if (!propagationQueue.contains(ac)) propagationQueue.add(ac);
-            return this;
-        }
-
-        void add(AriConstraint ac) {
-            constraintQueue.add(ac);
-        }
-
-        Propagator(Map<Integer, Object> subst) {
-            this.subst = subst;
-        }
-
-
-        Domain getDomain(Var v0) {
-            final Var v = walkVar(v0, subst);
-            final Option<Domain> optCurrent = varDomains.get(v.seq);
-            if (!optCurrent.isEmpty()) return optCurrent.get();
-            final Object value = subst.get(v.seq).get();
-            if (value instanceof Var) {
-                final Option<Attribute> fromSubst = getAttribute(v, subst, DOM_DOMAIN);
-                if (fromSubst.isEmpty()) {
-                    final Domain domain = SomeInteger.of(v);
-                    varDomains = varDomains.put(v.seq, domain);
-                    return domain;
-                } else {
-                    return (Domain) fromSubst.get();
-                }
-            } else {
-                instantiatedVars = instantiatedVars.add(v.seq);
-                final Domain fromValue;
-                if (value instanceof Integer) {
-                    fromValue = Enumerated.of(v, (Integer) value);
-                } else {
-                    fromValue = Enumerated.of(v);
-                }
-                varDomains = varDomains.put(v.seq, fromValue);
-                return fromValue;
-            }
-        }
-
-        List<AriConstraint> getConstraints(int varSeq) {
-            final Option<List<AriConstraint>> optConstraints = varConstraints.get(varSeq);
+        /**
+         * Returns the list of constraints that subscribe to the variable with the given index.
+         *
+         * @param varIndex The variable index
+         * @return The list of constraints subscribing to the changes in the given variable's domain
+         */
+        List<FdConstraint> getConstraints(int varIndex) {
+            final Option<List<FdConstraint>> optConstraints = varConstraints.get(varIndex);
             if (!optConstraints.isEmpty()) return optConstraints.get();
-            final List<AriConstraint> result = getAttribute(varSeq, subst, ARI_DOMAIN)
-                    .map(a -> ((AriAttribute) a).constraints)
+            final List<FdConstraint> result = getAttribute(varIndex, subst, ARI_DOMAIN)
+                    .map(a -> ((FdAttribute) a).constraints)
                     .getOrElse(List.empty());
-            varConstraints = varConstraints.put(varSeq, result);
+            varConstraints = varConstraints.put(varIndex, result);
             return result;
         }
 
-        boolean isExcited(int varSeq) {
-            return excitedVars.contains(varSeq);
-        }
-
-        boolean isExcited(Var v) {
-            return excitedVars.contains(walkVar(v, subst).seq);
-        }
-
-        static boolean equalValues(Domain d1, Domain d2) {
-            if (d1.isEnumerated()) {
-                return d2.isEnumerated() && d1.values().equals(d2.values());
-            } else return !d2.isEnumerated();
-        }
-
-        boolean getToFixpoint() {
-            do {
-                for (int varSeq : excitedVars) {
-                    final List<AriConstraint> cs = getConstraints(varSeq);
-                    varConstraints = varConstraints.put(varSeq, List.empty());
-                    for (final AriConstraint c : cs) {
-                        if (propagationQueue.contains(c)) continue;
-                        final Set<Integer> otherVarSeqs = c.vars().map(v -> walkVar(v, subst).seq)
-                                .filter(s -> s != varSeq);
-                        for (final int otherVarSeq : otherVarSeqs) {
-                            varConstraints = varConstraints.put(otherVarSeq,
-                                    getConstraints(otherVarSeq).remove(c));
-                        }
-                        propagationQueue.add(c);
-                    }
+        /**
+         * Registers a new constraint with the variables that listen to it.
+         *
+         * @param c the new constraint
+         * @return true
+         */
+        boolean registerConstraint(FdConstraint c) {
+            for (final int varSeq : c.vars().map(v -> walkVar(v, subst).index)) {
+                final List<FdConstraint> cs = getConstraints(varSeq);
+                if (!cs.contains(c)) {
+                    varConstraints = varConstraints.put(varSeq, cs.prepend(c));
                 }
-
-                while (!propagationQueue.isEmpty()) {
-                    if (!propagationQueue.remove().propagate(this)) return false;
-                }
-
-                excitedVars = TreeSet.empty();
-
-                while (!constraintQueue.isEmpty()) {
-                    final AriConstraint ac = constraintQueue.remove();
-                    for (final int varSeq : ac.vars().map(v -> walkVar(v, subst).seq)) {
-                        varConstraints = varConstraints.put(varSeq, getConstraints(varSeq).prepend(ac));
-                    }
-                }
-
-                while (!domainQueue.isEmpty()) {
-                    final Domain d = domainQueue.remove();
-                    if (d.isEmpty()) return false;
-                    final Var v = walkVar(d.variable(), subst);
-                    final Domain d0 = getDomain(v);
-                    if (!equalValues(d0, d)) {
-                        final Domain d1 = d.intersect(d0);
-                        if (d1.isEmpty()) return false;
-                        varDomains = varDomains.put(v.seq, d1);
-                        excitedVars = excitedVars.add(v.seq);
-                    }
-                }
-            } while (!excitedVars.isEmpty());
+            }
             return true;
         }
 
+        /**
+         * Unregisters the constraint with the variables to which it subscribes.
+         *
+         * @param c the constraint to unregister
+         * @return true
+         */
+        boolean unregisterConstraint(FdConstraint c) {
+            for (final int varSeq : c.vars().map(v -> walkVar(v, subst).index)) {
+                varConstraints = varConstraints.put(varSeq, getConstraints(varSeq).remove(c));
+            }
+            return true;
+        }
+
+        // ---------- Excited variables ----------
+
+        void excite(int varIndex, Option<SortedSet<Integer>> dom) {
+            for (final FdConstraint c : getConstraints(varIndex)) {
+                c.maybeAddToAgenda(this, varIndex, dom);
+            }
+        }
+
+        void excite(Var v, Option<SortedSet<Integer>> dom) {
+            excite(walkVarIndex(v.index, subst), dom);
+        }
+
+        // ---------- Variable Domains ------------
+        /**
+         * Mapping from (walked) variable indices to domains.
+         * <p>Each element is either a finite set of allowed integers (right), or a  finite set of excluded
+         * integers (left).</p>
+         */
+        Map<Integer, Option<SortedSet<Integer>>> varDomains = emptyMap();
+        /**
+         * Set of variables that were already instantiated.
+         */
+        Set<Integer> instantiatedVars = TreeSet.empty();
+
+        /**
+         * Gets the domain of the given variable
+         *
+         * @param varIndex
+         * @return the variable domain
+         */
+        Option<SortedSet<Integer>> getDomain(int varIndex) {
+            final Option<Option<SortedSet<Integer>>> optCurrent = varDomains.get(varIndex);
+            if (!optCurrent.isEmpty()) return optCurrent.get();
+            final Object value = subst.get(varIndex).get();
+            final Option<SortedSet<Integer>> result;
+            if (value instanceof Var) {
+                final Option<Attribute> fromSubst = getAttribute(varIndex, subst, DOM_DOMAIN);
+                if (fromSubst.isEmpty()) {
+                    result = Option.none();
+                } else {
+                    final FdDomain d = (FdDomain) fromSubst.get();
+                    result = d.isDefinite() ? Option.of(d.values()) : Option.none();
+                }
+            } else {
+                instantiatedVars = instantiatedVars.add(varIndex);
+                if (value instanceof Integer) {
+                    result = Option.of(TreeSet.of((Integer) value));
+                } else {
+                    result = Option.of(emptySet());
+                }
+            }
+            varDomains = varDomains.put(varIndex, result);
+            return result;
+        }
+
+
+        boolean reduceDomain(int varIndex, int solution) {
+            return reduceDomain(varIndex, TreeSet.of(solution));
+        }
+
+        boolean reduceDomain(int varIndex, SortedSet<Integer> values) {
+            return reduceDomain(varIndex, Option.of(values));
+        }
+
+        boolean reduceDomain(int varIndex, Option<SortedSet<Integer>> dom) {
+            final Option<SortedSet<Integer>> dom0 = getDomain(varIndex);
+            final Option<SortedSet<Integer>> dom1;
+            if (dom.isEmpty()) {
+                if (dom0.isEmpty()) {
+                    return true;
+                } else { // dom0.isRight()
+                    return !dom0.get().isEmpty();
+                }
+            } else if (dom0.isEmpty()) { // dom.isRight()
+                dom1 = dom;
+            } else { // dom.isRight() && dom0.isRight()
+                final SortedSet<Integer> in0 = dom0.get(), in1 = in0.intersect(dom.get());
+                if (in1.containsAll(in0)) return !in0.isEmpty();
+                dom1 = Option.of(in1);
+            }
+            varDomains = varDomains.put(varIndex, dom1);
+            if (isEmpty(dom1)) return false;
+            excite(varIndex, dom1);
+            return true;
+        }
+
+        LinkedList<Tuple2<FdConstraint, Integer>> queue = new LinkedList<>();
+
+        Solver(Map<Integer, Object> subst) {
+            this.subst = subst;
+        }
+
+        boolean isAgendaEmpty() {
+            return queue.isEmpty();
+        }
+
+        FdConstraint dequeue() {
+            return queue.remove()._1;
+        }
+
+        /**
+         * Enqueues the constraint to the agenda.
+         *
+         * <p>Constraint with weight (c, w) is added to the agenda in the following way:</p>
+         * <ul>
+         *     <li>If (c, w') is already in the agenda with w' &lt; w nothing changes.</li>
+         *     <li>Else, (c, w) is inserted behind any element (c', w') where w' &le; w</li>
+         * </ul>
+         *
+         * @param c      the constraint
+         * @param weight a numerical indicator of the computational weight (smaller is better)
+         */
+        void enqueue(FdConstraint c, int weight) {
+            final ListIterator<Tuple2<FdConstraint, Integer>> iterator = queue.listIterator();
+            while (iterator.hasNext()) {
+                final Tuple2<FdConstraint, Integer> t = iterator.next();
+                if (t._1 == c) {
+                    if (t._2 >= weight) iterator.set(Tuple.of(c, weight));
+                    return;
+                } else if (t._2 > weight) {
+                    iterator.previous();
+                    iterator.add(Tuple.of(c, weight));
+                    do {
+                        final Tuple2<FdConstraint, Integer> u = iterator.next();
+                        if (u._1 == c) {
+                            iterator.remove();
+                            return;
+                        }
+                    } while (iterator.hasNext());
+                    break;
+                }
+            }
+            iterator.add(Tuple.of(c, weight));
+        }
+
+        boolean enqueueNew(FdConstraint c, int weight) {
+            enqueue(c, weight);
+            return registerConstraint(c);
+        }
+
+        // ---------- Interface ----------
+
+        static Option<Map<Integer, Object>> instantiate(Var v, int x, Map<Integer, Object> subst) {
+            final Solver solver = new Solver(subst);
+            if (!solver.reduceDomain(walkVarIndex(v.index, subst), Option.of(TreeSet.of(x))))
+                return Option.none();
+            return solver.solution();
+        }
+
+        static Option<Map<Integer, Object>> addDomain(FdDomain d, Map<Integer, Object> subst) {
+            final Solver solver = new Solver(subst);
+            if (!solver.reduceDomain(walkVarIndex(d.variable().index, subst),
+                    (d.isDefinite() ? Option.of(d.values()) : Option.none())))
+                return Option.none();
+            return solver.solution();
+        }
+
+        static Option<Map<Integer, Object>> registerConstraint(FdConstraint c, Map<Integer, Object> subst) {
+            final Solver solver = new Solver(subst);
+            solver.registerConstraint(c);
+            solver.enqueue(c, 0);
+            return solver.solution();
+        }
+
+        Logish.Series<Map<Integer, Object>> label(Set<Var> vars) {
+            if (!getToFixpoint()) return Series.empty();
+            final List<Tuple4<Var, SortedSet<Integer>, Integer, Integer>> candidates =
+                vars.map(v -> walkVar(v, subst)).toList().map(v -> Tuple.of(v, getDomain(v.index)))
+                        .filter(t -> isDefinite(t._2) && !hasSolution(t._2))
+                        .map(t -> Tuple.of(t._1, t._2.get(), t._2.get().size(), getConstraints(t._1.index).length()))
+                    .sorted((t1, t2)  -> t1._3.equals(t2._3) ? t2._4 - t1._4: t1._3 - t2._3);
+            if (candidates.exists(t -> t._3 == 0)) return Series.empty();
+            if (candidates.isEmpty()) return Series.of(solution());
+            final Tuple4<Var, SortedSet<Integer>, Integer, Integer> chosen = candidates.head();
+            final int half = chosen._3/2, chosenVarIndex = chosen._1.index;
+            final SortedSet<Integer> firstHalf = chosen._2.take(half),
+                    secondHalf = chosen._2.drop(half);
+            final Solver branch = duplicate();
+            reduceDomain(chosenVarIndex, firstHalf);
+            return Series.appendInf(label(vars), Series.suspension(() -> {
+                branch.reduceDomain(chosenVarIndex, secondHalf);
+                return branch.label(vars);
+            }));
+        }
+
+        Solver duplicate() {
+            final Solver result = new Solver(subst);
+            result.varConstraints = varConstraints;
+            result.varDomains = varDomains;
+            result.instantiatedVars = instantiatedVars;
+            return result;
+        }
+
+
+        // ---------- Inner mechanics ----------
+
+        boolean getToFixpoint() {
+            while (!queue.isEmpty()) {
+                if (!queue.remove()._1.propagate(this)) return false;
+            }
+            return true;
+        }
 
         Option<Map<Integer, Object>> solution() {
 
@@ -524,8 +697,8 @@ public class Fd {
 
             Map<Integer, Object> result = subst;
 
-            final Map<Integer, Domain> solved =
-                    varDomains.filter(t -> t._2.hasSolution());
+            final Map<Integer, Integer> solved =
+                    varDomains.filter(t -> hasSolution(t._2)).mapValues(d -> d.get().head());
 
             // Remove domain and ari constraint from the solved variables
             for (final int varSeq : solved.keysIterator()) {
@@ -535,70 +708,40 @@ public class Fd {
             // Set domains for unsolved variables
             for (final int varSeq : varDomains.keysIterator()) {
                 if (solved.containsKey(varSeq)) continue;
-                result = setAttribute(varSeq, result, DOM_DOMAIN, varDomains.get(varSeq).get());
+                final Option<SortedSet<Integer>> d = varDomains.get(varSeq).get();
+                final FdDomain dom;
+                if (d.isEmpty()) dom = AnyInteger.of(new Var(varSeq));
+                else dom = Definite.of(new Var(varSeq), d.get());
+                result = setAttribute(varSeq, result, DOM_DOMAIN, dom);
             }
 
             // Set arithmetic constraints for unsolved variables
             for (final int varSeq : varConstraints.keysIterator()) {
                 if (solved.containsKey(varSeq)) continue;
-                final List<AriConstraint> cs = varConstraints.get(varSeq).get();
+                final List<FdConstraint> cs = varConstraints.get(varSeq).get();
                 if (cs.isEmpty()) {
                     result = removeAttribute(varSeq, result, ARI_DOMAIN);
                 } else {
-                    result = setAttribute(varSeq, result, ARI_DOMAIN, new AriAttribute(cs));
+                    result = setAttribute(varSeq, result, ARI_DOMAIN, new FdAttribute(cs));
                 }
             }
 
             // Instantiate solved variables by unifying them recursively
-            for (final Tuple2<Integer, Domain> solution : solved) {
+            for (final Tuple2<Integer, Integer> solution : solved) {
                 if (instantiatedVars.contains(solution._1)) continue; // variable instantiated earlier
-                final Option<Map<Integer, Object>> step = unify(new Var(solution._1), solution._2.solution(), result);
+                final Option<Map<Integer, Object>> step = unify(new Var(solution._1), solution._2, result);
                 if (step.isEmpty()) return Option.none();
                 result = step.get();
             }
 
             return Option.of(result);
         }
-
-        // Helpers
-
-        Option<Tuple2<Var, Domain>> getVarDomain(Var v) {
-            final Var w = walkVar(v, subst);
-            final Domain dc = getDomain(w);
-            return dc.isEmpty() ? Option.none() : Option.of(Tuple.of(w, dc));
-        }
-
-        boolean feed1(Var u, Function2<Var, Domain, Boolean> body) {
-            return getVarDomain(u).map(tu -> body.apply(tu._1, tu._2)).getOrElse(false);
-        }
-
-        boolean feed2(Var u, Var v,
-                      Function4<Var, Domain,
-                              Var, Domain,
-                              Boolean> body) {
-            return getVarDomain(u).flatMap(tu ->
-                    getVarDomain(v).map(tv ->
-                            body.apply(tu._1, tu._2, tv._1, tv._2)))
-                    .getOrElse(false);
-        }
-
-        boolean feed3(Var u, Var v, Var w,
-                      Function6<Var, Domain,
-                              Var, Domain,
-                              Var, Domain,
-                              Boolean> body) {
-            return getVarDomain(u).flatMap(tu ->
-                    getVarDomain(v).flatMap(tv ->
-                            getVarDomain(w).map(tw ->
-                                    body.apply(tu._1, tu._2, tv._1, tv._2, tw._1, tw._2))))
-                    .getOrElse(false);
-        }
     }
 
     /**
      * A constraint of the form: Variable + Constant = Variable
      */
-    static class PlusVCV implements AriConstraint {
+    static class PlusVCV implements FdConstraint {
         final Var x;
         final int y;
         final Var z;
@@ -624,69 +767,62 @@ public class Fd {
             return HashSet.of(x, z);
         }
 
-        boolean propagateXZ(Var xv, Domain domX, Var zv, Domain domZ, Propagator propagator) {
-            if (domX.isEnumerated()) {
-                if (domZ.isEnumerated()) {
-                    final SortedSet<Integer> setX0 = domX.values();
-                    final SortedSet<Integer> setZ0 = domZ.values();
-                    SortedSet<Integer> setX1 = TreeSet.empty();
-                    SortedSet<Integer> setZ1 = TreeSet.empty();
-                    for (int x0 : setX0) {
-                        if (setZ0.contains(x0 + y)) {
-                            setX1 = setX1.add(x0);
-                            setZ1 = setZ1.add(x0 + y);
-                        }
-                    }
-                    return propagator.add(Enumerated.of(xv, setX1)) &&
-                            propagator.add(Enumerated.of(zv, setZ1));
-                } else {
-                    return propagator.add(Enumerated.of(zv, domX.values().map(x -> x + y)).intersect(domZ));
-                }
-            } else if (domZ.isEnumerated()) {
-                return propagator.add(Enumerated.of(xv, domZ.values().map(z -> z - y)).intersect(domX));
-            } else {
-                return true;
+        @Override
+        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+            // If the domain of either x or z has become definite, schedule the propagator to replace
+            // itself with more precise PlusVCV_X
+            if (isDefinite(dom)) {
+                solver.enqueue(this, 2);
             }
         }
 
         @Override
-        public boolean propagate(Propagator propagator) {
-            return propagator.feed2(x, z, (xv, domX, zv, domZ) -> {
-                if (xv.seq == zv.seq) {
-                    // Case: X + y = X. Satisfied for any x:dom(X) when y=0
-                    return y == 0;
-                } else if (domX.hasSolution() && domZ.hasSolution()) {
-                    // Verify x + y = z
-                    return domX.solution() + y == domZ.solution();
-                } else if (domX.hasSolution()) {
-                    // z := x + y
-                    return propagator.add(Enumerated.of(zv, domX.solution() + y).intersect(domZ));
-                } else if (domZ.hasSolution()) {
-                    // x = z - y
-                    return propagator.add(Enumerated.of(xv, domZ.solution() - y).intersect(domX));
+        public boolean propagate(Solver solver) {
+            final Var x = walkVar(this.x, solver.subst), z = walkVar(this.z, solver.subst);
+
+            solver.unregisterConstraint(this);
+
+            if (x.index == z.index) {
+                // Case x + y = x
+                return y == 0;
+            }
+
+            final Option<SortedSet<Integer>> domX = solver.getDomain(x.index),
+                    domZ = solver.getDomain(z.index);
+
+            if (isEmpty(domX) || isEmpty(domZ)) return false;
+
+            if (hasSolution(domX)) {
+                if (hasSolution(domZ)) {
+                    return solution(domX) + y == solution(domZ);
                 } else {
-                    propagator.add(new PlusVCV(xv, y, zv)); // keep the equation
-                    if (!propagator.isExcited(xv) && !propagator.isExcited(zv)) {
-                        // Now we need to make the initial check of the constraint
-                        return propagateXZ(xv, domX, zv, domZ, propagator);
-                    } else if (propagator.isExcited(xv) && propagator.isExcited(zv)) {
-                        // Both X and Y are excited: do the full check of the constraint
-                        return propagateXZ(xv, domX, zv, domZ, propagator);
-                    } else if (propagator.isExcited(xv) && domX.isEnumerated()) {
-                        // dom(Z)' = { x + y | x:dom(X) } \cap dom(Z)
-                        return propagator.add(Enumerated.of(zv, domX.values().map(x -> x + y)).intersect(domZ));
-                    } else if (propagator.isExcited(zv) && domZ.isEnumerated()) {
-                        // dom(X)' = { z - y | z: dom(Z) } \cap dom(X)
-                        return propagator.add(Enumerated.of(xv, domZ.values().map(z -> z - y)).intersect(domX));
-                    } else { // nothing can be inferred; reassert the constraint
-                        return true;
-                    }
+                    return solver.reduceDomain(z.index, solution(domX) + y);
                 }
-            });
+            } else if (hasSolution(domZ)) {
+                return solver.reduceDomain(x.index, solution(domZ) - y);
+            }
+
+            if (isDefinite(domX)) {
+                if (isDefinite(domZ)) {
+                    final SortedSet<Integer> zs = domZ.get(),
+                            xs2 = domX.get().filter(xx -> zs.contains(xx + y)),
+                            zs2 = xs2.map(xx -> xx + y);
+                    return solver.reduceDomain(x.index, xs2) && solver.reduceDomain(z.index, zs2) &&
+                            solver.registerConstraint(this);
+                } else {
+                    return solver.reduceDomain(z.index, domX.get().map(xx -> xx + y)) &&
+                            solver.registerConstraint(this);
+                }
+            } else if (isDefinite(domZ)) {
+                return solver.reduceDomain(x.index, domZ.get().map(zz -> zz - y)) &&
+                        solver.registerConstraint(this);
+            }
+
+            return solver.registerConstraint(this);
         }
     }
 
-    static class PlusVVC implements AriConstraint {
+    static class PlusVVC implements FdConstraint {
         final Var x;
         final Var y;
         final int z;
@@ -712,69 +848,67 @@ public class Fd {
             return HashSet.of(x, y);
         }
 
-        boolean propagateXY(Var xv, Domain domX, Var yv, Domain domY, Propagator propagator) {
-            if (domX.isEnumerated()) {
-                if (domY.isEnumerated()) {
-                    final SortedSet<Integer> setX0 = domX.values();
-                    final SortedSet<Integer> setY0 = domY.values();
-                    SortedSet<Integer> setX1 = TreeSet.empty();
-                    SortedSet<Integer> setY1 = TreeSet.empty();
-                    for (int x0 : setX0) {
-                        if (setY0.contains(z - x0)) {
-                            setX1 = setX1.add(x0);
-                            setY1 = setY1.add(z - x0);
-                        }
-                    }
-                    return propagator.add(Enumerated.of(xv, setX1)) &&
-                            propagator.add(Enumerated.of(yv, setY1));
-                } else {
-                    return propagator.add(Enumerated.of(yv, domX.values().map(x -> z - x)).intersect(domY));
-                }
-            } else if (domY.isEnumerated()) {
-                return propagator.add(Enumerated.of(xv, domY.values().map(y -> z - y)).intersect(domX));
-            } else {
-                return true;
+        @Override
+        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+            if (isDefinite(dom)) {
+                solver.enqueue(this, 1);
             }
         }
 
         @Override
-        public boolean propagate(Propagator propagator) {
-            return propagator.feed2(x, y, (xv, domX, yv, domY) -> {
-                if (xv.seq == yv.seq) {
-                    // X + X = z; single solution when z is even: x = z/2
-                    if ((z & 1) != 0) return false;
-                    return propagator.add(Enumerated.of(xv, z / 2).intersect(domX));
-                } else if (domX.hasSolution() && domY.hasSolution()) {
-                    // verify x + y = z
-                    return domX.solution() + domY.solution() == z;
-                } else if (domX.hasSolution()) {
-                    // y := z - x
-                    return propagator.add(Enumerated.of(yv, z - domX.solution()).intersect(domY));
-                } else if (domY.hasSolution()) {
-                    // x := z - y
-                    return propagator.add(Enumerated.of(xv, z - domY.solution()).intersect(domX));
+        public boolean propagate(Solver solver) {
+            final Var x = walkVar(this.x, solver.subst), y = walkVar(this.y, solver.subst);
+
+            solver.unregisterConstraint(this);
+
+            if (x.index == y.index) {
+                // Case: 2x = z
+                if ((z & 1) != 0) { // z is odd -> no solution
+                    return false;
                 } else {
-                    propagator.add(new PlusVVC(xv, yv, z));
-                    if (!propagator.isExcited(xv) && !propagator.isExcited(yv)) {
-                        // The initial restriction of all variables
-                        return propagateXY(xv, domX, yv, domY, propagator);
-                    } else if (propagator.isExcited(xv) && propagator.isExcited(yv)) {
-                        // Both X and Y excited: perform a full check
-                        return propagateXY(xv, domX, yv, domY, propagator);
-                    } else if (propagator.isExcited(xv) && domX.isEnumerated()) {
-                        // dom(Y)' = { z - x : x:dom(X) } \cap dom(Y)
-                        return propagator.add(Enumerated.of(yv, domX.values().map(x -> z - x)).intersect(domY));
-                    } else if (propagator.isExcited(yv) && domY.isEnumerated()) {
-                        return propagator.add(Enumerated.of(xv, domY.values().map(y -> z - y)).intersect(domX));
-                    } else {
-                        return true;
-                    }
+                    return solver.reduceDomain(x.index, z / 2);
                 }
-            });
+            }
+
+            // x and y are distinct variables
+
+            final Option<SortedSet<Integer>> domX = solver.getDomain(x.index),
+                    domY = solver.getDomain(y.index);
+
+            if (isEmpty(domX) || isEmpty(domY)) return false;
+
+            if (hasSolution(domX)) {
+                if (hasSolution(domY)) {
+                    return solution(domX) + solution(domY) == z;
+                } else {
+                    return solver.reduceDomain(y.index, z - solution(domX));
+                }
+            } else if (hasSolution(domY)) {
+                return solver.reduceDomain(x.index, z - solution(domY));
+            }
+
+            if (isDefinite(domX)) {
+                if (isDefinite(domY)) {
+                    final SortedSet<Integer> ys = domY.get(),
+                            xs2 = domX.get().filter(xx -> ys.contains(z - xx)),
+                            ys2 = xs2.map(xx -> z - xx);
+                    return solver.reduceDomain(x.index, xs2) && solver.reduceDomain(y.index, ys2) &&
+                            solver.registerConstraint(this);
+                } else {
+                    return solver.reduceDomain(y.index, domX.get().map(xx -> z - xx)) &&
+                            solver.registerConstraint(this);
+                }
+            } else if (isDefinite(domY)) {
+                return solver.reduceDomain(x.index, domY.get().map(yy -> z - yy)) &&
+                        solver.registerConstraint(this);
+            }
+
+            return solver.registerConstraint(this);
         }
     }
 
-    static class PlusVVV implements AriConstraint {
+
+    static class PlusVVV implements FdConstraint {
         final Var x;
         final Var y;
         final Var z;
@@ -800,150 +934,282 @@ public class Fd {
             return HashSet.of(x, y, z);
         }
 
-//        boolean propagateXYZ(Var xv, Domain domX, Var yv, Domain domY, Var zv, Domain domZ, Propagator propagator) {
-//            if (domX.isEnumerated()) {
-//                if (domY.isEnumerated()) {
-//                    if (domZ.isEnumerated()) {
-//                        final List<Tuple3<Integer, Integer, Integer>> cXYZ = List.ofAll(
-//                                domX.values().toList().crossProduct(domY.values()).toList().crossProduct(domZ.values())
-//                                        .map(t -> Tuple.of(t._1._1, t._1._2, t._2))
-//                                        .filter(t -> t._1 + t._2 == t._3));
-//                        return propagator.add(Enumerated.of(xv, TreeSet.ofAll(cXYZ.map(Tuple3::_1)))) &&
-//                                propagator.add(Enumerated.of(yv, TreeSet.ofAll(cXYZ.map(Tuple3::_2)))) &&
-//                                propagator.add(Enumerated.of(zv, TreeSet.ofAll(cXYZ.map(Tuple3::_3))));
-//                    } else {
-//                        return propagator.add(Enumerated.of(zv,
-//                                TreeSet.ofAll(domX.values().toList().crossProduct(domY.values()).map(t -> t._1 + t._2)))
-//                                .intersect(domZ));
-//                    }
-//                } else if (domZ.isEnumerated()) {
-//                    return propagator.add(Enumerated.of(yv,
-//                            TreeSet.ofAll(domX.values().toList().crossProduct(domZ.values()).map(t -> t._2 - t._1)))
-//                            .intersect(domY));
-//                } else {
-//                    return true;
-//                }
-//            }
-//            if (domY.isEnumerated()) {
-//                if (domZ.isEnumerated()) {
-//                    return propagator.add(Enumerated.of(xv,
-//                            TreeSet.ofAll(domY.values().toList().crossProduct(domZ.values()).map(t -> t._2 - t._1)))
-//                            .intersect(domX));
-//                } else {
-//                    return true;
-//                }
-//            } else {
-//                return true;
-//            }
-//        }
+        final static int CARD_THRESHOLD = 256;
 
-        // Weak variant -- never sets the domain as a (subset of a) Cartesian product of two variable domains
-        boolean propagateXYZ(Var xv, Domain domX, Var yv, Domain domY, Var zv, Domain domZ, Propagator propagator) {
-            if (domX.isEnumerated() & domY.isEnumerated() && domZ.isEnumerated()) {
-                final SortedSet<Integer> setX0 = domX.values();
-                final SortedSet<Integer> setY0 = domY.values();
-                final SortedSet<Integer> setZ0 = domZ.values();
-                SortedSet<Integer> setX1 = TreeSet.empty();
-                SortedSet<Integer> setY1 = TreeSet.empty();
-                SortedSet<Integer> setZ1 = TreeSet.empty();
-                for (int x0 : setX0) {
-                    for (int y0 : setY0) {
-                        if (setZ0.contains(x0 + y0)) {
-                            setX1 = setX1.add(x0);
-                            setY1 = setY1.add(y0);
-                            setZ1 = setZ1.add(x0 + y0);
-                        }
-                    }
-                }
-                return propagator.add(Enumerated.of(xv, setX1)) &&
-                        propagator.add(Enumerated.of(yv, setY1)) &&
-                        propagator.add(Enumerated.of(zv, setZ1));
-            } else {
-                return true;
-            }
-        }
-
-        boolean propagate2XZ(Var xv, Domain domX, Var zv, Domain domZ, Propagator propagator) {
-            if (domX.isEnumerated()) {
-                if (domZ.isEnumerated()) {
-                    final SortedSet<Integer> cZ = domZ.values().filter(z -> (z & 1) == 0 && domX.accepts(z / 2));
-                    return propagator.add(Enumerated.of(zv, cZ)) &&
-                            propagator.add(Enumerated.of(xv, cZ.map(z -> z / 2)));
-                } else {
-                    return propagator.add(Enumerated.of(zv, domX.values().map(x -> 2 * x)).intersect(domZ));
-                }
-            } else {
-                return propagate2XZ_Z(xv, domX, zv, domZ, propagator);
-            }
-        }
-
-        boolean propagate2XZ_Z(Var xv, Domain domX, Var zv, Domain domZ, Propagator propagator) {
-            if (domZ.isEnumerated()) {
-                final SortedSet<Integer> cZ = domZ.values().filter(z -> (z & 1) == 0);
-                return propagator.add(Enumerated.of(zv, cZ)) &&
-                        propagator.add(Enumerated.of(xv, cZ.map(z -> z / 2)).intersect(domX));
-            } else {
-                return true;
+        @Override
+        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+            if (isDefinite(dom)) {
+                solver.enqueue(this, 3);
             }
         }
 
         @Override
-        public boolean propagate(Propagator propagator) {
-            return propagator.feed3(x, y, z, (xv, domX, yv, domY, zv, domZ) -> {
-                // First, try to reduce to VCV or VVC cases
-                if (domX.hasSolution()) {
-                    return new PlusVCV(yv, domX.solution(), zv).propagate(propagator);
-                } else if (domY.hasSolution()) {
-                    return new PlusVCV(xv, domY.solution(), zv).propagate(propagator);
-                } else if (domZ.hasSolution()) {
-                    return new PlusVVC(xv, yv, domZ.solution()).propagate(propagator);
-                }
+        public boolean propagate(Solver solver) {
+            final Var x = walkVar(this.x, solver.subst), y = walkVar(this.y, solver.subst),
+                    z = walkVar(this.z, solver.subst);
 
-                // Now, check different variable configurations
-                if (xv.seq == yv.seq && xv.seq == zv.seq) {
-                    // *** Case: 2X = X *** ; the ony solution is x = 0
-                    return propagator.add(Enumerated.of(xv, 0).intersect(domX));
-                } else if (xv.seq == yv.seq) {
-                    // *** Case: 2X = Z ***
-                    propagator.add(new PlusVVV(xv, xv, zv)); // keep the constraint
-                    if (!propagator.isExcited(xv) && !propagator.isExcited(zv)) {
-                        // The initial check of the constraint
-                        return propagate2XZ(xv, domX, zv, domZ, propagator);
-                    } else if (propagator.isExcited(xv) && propagator.isExcited(zv)) {
-                        // Both X and Z are excited: restrict both
-                        return propagate2XZ(xv, domX, zv, domZ, propagator);
-                    } else if (propagator.isExcited(xv) && domX.isEnumerated()) {
-                        return propagator.add(Enumerated.of(zv, domX.values().map(x -> 2 * x)).intersect(domZ));
-                    } else if (propagator.isExcited(zv)) {
-                        return propagate2XZ_Z(xv, domX, zv, domZ, propagator);
-                    } else {
-                        return true;
-                    }
-                } else if (xv.seq == zv.seq) {
-                    // *** Case: X + Y = X ***
-                    return propagator.add(Enumerated.of(yv, 0).intersect(domY));
-                } else if (yv.seq == zv.seq) {
-                    // *** Case: X + Y = Y ***
-                    return propagator.add(Enumerated.of(xv, 0).intersect(domX));
-                } else {
-                    // *** Case: X, Y, and Z are three distinct variables ***
-                    propagator.add(new PlusVVV(xv, yv, zv));
-                    return propagateXYZ(xv, domX, yv, domY, zv, domZ, propagator);
+            solver.unregisterConstraint(this);
+
+            if (x.index == y.index && y.index == z.index) {
+                // Case: x + x = x --> x = 0
+                return solver.reduceDomain(x.index, 0);
+            }
+
+            if (x.index == y.index) {
+                // Case: 2x = z
+                solver.enqueueNew(new TimesCVV(2, x, z), 2);
+                return true;
+            }
+
+            if (x.index == z.index) {
+                // Case: x + y = x --> y = 0
+                return solver.reduceDomain(y.index, 0);
+            }
+
+            if (y.index == z.index) {
+                // Case: x + y = y --> x = 0
+                return solver.reduceDomain(x.index, 0);
+            }
+
+            // x, y, z are three distinct variables
+
+            final Option<SortedSet<Integer>> domX = solver.getDomain(x.index), domY = solver.getDomain(y.index),
+                    domZ = solver.getDomain(z.index);
+
+            if (isEmpty(domX) || isEmpty(domY) || isEmpty(domZ)) return false;
+
+            // First, try to reduce to VCV or VVC cases
+            if (hasSolution(domX)) {
+                return solver.enqueueNew(new PlusVCV(y, solution(domX), z), 1);
+
+            } else if (hasSolution(domY)) {
+                return solver.enqueueNew(new PlusVCV(x, solution(domY), z), 1);
+
+            } else if (hasSolution(domZ)) {
+                return solver.unregisterConstraint(this);
+            }
+
+            if (isDefinite(domX) && isDefinite(domY)) {
+                final SortedSet<Integer> setX = domX.get(), setY = domY.get();
+                final int nX = setX.size(), nY = setY.size();
+
+                if (nX <= CARD_THRESHOLD && nY <= CARD_THRESHOLD && nX * nY <= CARD_THRESHOLD) {
+                    final List<Tuple2<Integer, Integer>> cXY =
+                            setX.toList().crossProduct(setY).toList();
+                    return solver.enqueueNew(new PlusVVV_XY(x, y, cXY, z), 2);
                 }
-            });
+            }
+
+            if (isDefinite(domX) && isDefinite(domZ)) {
+                final SortedSet<Integer> setX = domX.get(), setZ = domZ.get();
+                final int nX = setX.size(), nZ = setZ.size();
+
+                if (nX <= CARD_THRESHOLD && nZ <= CARD_THRESHOLD && nX * nZ <= CARD_THRESHOLD) {
+                    final List<Tuple2<Integer, Integer>> cXY =
+                            setX.toList().crossProduct(setZ).map(t -> Tuple.of(t._1, t._2 - t._1)).toList();
+                    return solver.enqueueNew(new PlusVVV_XY(x, y, cXY, z), 2);
+                }
+            }
+
+            if (isDefinite(domY) && isDefinite(domZ)) {
+                final SortedSet<Integer> setY = domY.get(), setZ = domZ.get();
+                final int nY = setY.size(), nZ = setZ.size();
+
+                if (nY <= CARD_THRESHOLD && nZ <= CARD_THRESHOLD && nY * nZ <= CARD_THRESHOLD) {
+                    final List<Tuple2<Integer, Integer>> cXY =
+                            setY.toList().crossProduct(setZ).map(t -> Tuple.of(t._2 - t._1, t._1)).toList();
+                    return solver.enqueueNew(new PlusVVV_XY(x, y, cXY, z), 2);
+                }
+            }
+
+            if (isDefinite(domX) && isDefinite(domY) && isDefinite(domZ)) {
+                final SortedSet<Integer> cX = domX.get().filter(xx -> domY.get().exists(yy -> domZ.get().contains(xx + yy))),
+                        cY = domY.get().filter(yy -> cX.exists(xx -> domZ.get().contains(xx + yy))),
+                        cZ = domZ.get().filter(zz -> cX.exists(xx -> cY.contains(zz - xx)));
+                return solver.reduceDomain(x.index, cX) && solver.reduceDomain(y.index, cY) && solver.reduceDomain(z.index, cZ) &&
+                        solver.registerConstraint(this);
+            }
+
+            return solver.registerConstraint(this);
+        }
+    }
+
+    static class PlusVVV_XY extends PlusVVV {
+        final List<Tuple2<Integer, Integer>> cXY;
+
+        public PlusVVV_XY(Var x, Var y, List<Tuple2<Integer, Integer>> cXY, Var z) {
+            super(x, y, z);
+            this.cXY = cXY;
+        }
+
+        @Override
+        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+            if (!isDefinite(dom)) return;
+            final SortedSet<Integer> set = dom.get();
+            if ((walkVar(x, solver.subst).index == varIndex && cXY.exists(t -> !set.contains(t._1))) ||
+                    (walkVar(y, solver.subst).index == varIndex && cXY.exists(t -> !set.contains(t._2))) ||
+                    (walkVar(z, solver.subst).index == varIndex && cXY.exists(t -> !set.contains(t._1 + t._2)))) {
+                solver.enqueue(this, 2);
+            }
+        }
+
+        @Override
+        public boolean propagate(Solver solver) {
+
+            final Var x = walkVar(this.x, solver.subst), y = walkVar(this.y, solver.subst),
+                    z = walkVar(this.z, solver.subst);
+
+            solver.unregisterConstraint(this);
+
+            if (x.index == y.index && y.index == z.index) {
+                // Case: x + x = x --> x = 0
+                return solver.reduceDomain(x.index, 0);
+            }
+
+            if (x.index == y.index) {
+                // Case: 2x = z
+                return solver.enqueueNew(new TimesCVV(2, x, z), 2);
+            }
+
+            if (x.index == z.index) {
+                // Case: x + y = x --> y = 0
+                return solver.reduceDomain(y.index, 0);
+            }
+
+            if (y.index == z.index) {
+                // Case: x + y = y --> x = 0
+                return solver.reduceDomain(x.index, 0);
+            }
+
+            // x, y, z are three distinct variables
+
+            final Option<SortedSet<Integer>> domX = solver.getDomain(x.index), domY = solver.getDomain(y.index),
+                    domZ = solver.getDomain(z.index);
+
+            if (isEmpty(domX) || isEmpty(domY) || isEmpty(domZ)) return false;
+
+            if (hasSolution(domX) && hasSolution(domY) && hasSolution(domZ)) {
+                final int xx = solution(domX), yy = solution(domY), zz = solution(domZ);
+                return xx + yy == zz &&
+                        cXY.exists(t -> t._1 == xx) && cXY.exists(t -> t._2 == yy);
+
+            } else if (hasSolution(domX) && hasSolution(domY)) {
+                final int xx = solution(domX), yy = solution(domY);
+                return cXY.exists(t -> t._1 == xx) && cXY.exists(t -> t._2 == yy) &&
+                        solver.reduceDomain(z.index, xx + yy);
+
+            } else if (hasSolution(domX) && hasSolution(domZ)) {
+                final int xx = solution(domX), zz = solution(domZ);
+                return cXY.exists(t -> t._1 == xx) && cXY.exists(t -> t._1 + t._2 == zz) &&
+                        solver.reduceDomain(y.index, zz - xx);
+
+            } else if (hasSolution(domY) && hasSolution(domZ)) {
+                final int yy = solution(domY), zz = solution(domZ);
+                return cXY.exists(t -> t._2 == yy) && cXY.exists(t -> t._1 + t._2 == zz) &&
+                        solver.reduceDomain(x.index, zz - yy);
+
+            } else if (hasSolution(domX)) {
+                solver.enqueueNew(new PlusVCV(y, solution(domX), z), 1);
+                return true;
+
+            } else if (hasSolution(domY)) {
+                solver.enqueueNew(new PlusVCV(x, solution(domY), z), 1);
+                return true;
+
+            } else if (hasSolution(domZ)) {
+                solver.enqueueNew(new PlusVVC(x, y, solution(domZ)), 1);
+                return true;
+            }
+
+            if (isDefinite(domX) && isDefinite(domY) && isDefinite(domZ)) {
+                final SortedSet<Integer> setX = domX.get(), setY = domY.get(), setZ = domZ.get();
+                final List<Tuple2<Integer, Integer>>
+                        cXY2 = cXY.filter(t -> setX.contains(t._1) && setY.contains(t._2) && setZ.contains(t._1 + t._2));
+                final SortedSet<Integer> cX2 = cXY2.map(t -> t._1).toSortedSet(),
+                        cY2 = cXY2.map(t -> t._2).toSortedSet(),
+                        cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
+                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
+                        solver.reduceDomain(z.index, cZ2)
+                        && solver.registerConstraint(new PlusVVV_XY(x, y, cXY2, z));
+
+            } else if (isDefinite(domX) && isDefinite(domY)) {
+                final SortedSet<Integer> setX = domX.get(), setY = domY.get();
+                final List<Tuple2<Integer, Integer>> cXY2 = cXY.filter(t -> setX.contains(t._1) && setY.contains(t._2));
+                final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
+                        cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
+                        cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
+                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
+                        solver.reduceDomain(z.index, cZ2) &&
+                        solver.registerConstraint(new PlusVVV_XY(x, y, cXY2, z));
+
+            } else if (isDefinite(domX) && isDefinite(domZ)) {
+                final SortedSet<Integer> setX = domX.get(), setZ = domZ.get();
+                final List<Tuple2<Integer, Integer>> cXY2 = cXY.filter(t -> setX.contains(t._1) && setZ.contains(t._1 + t._2));
+                final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
+                        cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
+                        cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
+                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
+                        solver.reduceDomain(z.index, cZ2) &&
+                        solver.registerConstraint(new PlusVVV_XY(x, y, cXY2, z));
+
+            } else if (isDefinite(domY) && isDefinite(domZ)) {
+                final SortedSet<Integer> setY = domY.get(), setZ = domZ.get();
+                final List<Tuple2<Integer, Integer>> cXY2 = cXY.filter(t -> setY.contains(t._2) && setZ.contains(t._1 + t._2));
+                final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
+                        cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
+                        cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
+                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
+                        solver.reduceDomain(z.index, cZ2) &&
+                        solver.registerConstraint(new PlusVVV_XY(x, y, cXY2, z));
+
+            } else if (isDefinite(domX)) {
+                final SortedSet<Integer> setX = domX.get();
+                final List<Tuple2<Integer, Integer>> cXY2 = cXY.filter(t -> setX.contains(t._1));
+                final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
+                        cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
+                        cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
+                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
+                        solver.reduceDomain(z.index, cZ2) &&
+                        solver.registerConstraint(new PlusVVV_XY(x, y, cXY2, z));
+
+            } else if (isDefinite(domY)) {
+                final SortedSet<Integer> setY = domY.get();
+                final List<Tuple2<Integer, Integer>> cXY2 = cXY.filter(t -> setY.contains(t._2));
+                final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
+                        cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
+                        cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
+                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
+                        solver.reduceDomain(z.index, cZ2) &&
+                        solver.registerConstraint(new PlusVVV_XY(x, y, cXY2, z));
+
+            } else if (isDefinite(domZ)) {
+                final SortedSet<Integer> setZ = domZ.get();
+                final List<Tuple2<Integer, Integer>> cXY2 = cXY.filter(t -> setZ.contains(t._1 + t._2));
+                final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
+                        cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
+                        cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
+                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
+                        solver.reduceDomain(z.index, cZ2) &&
+                        solver.registerConstraint(new PlusVVV_XY(x, y, cXY2, z));
+            }
+
+            return solver.registerConstraint(this);
+
         }
     }
 
     static class AriGoal extends Goal {
-        final AriConstraint constraint;
 
-        AriGoal(AriConstraint constraint) {
+
+        final FdConstraint constraint;
+
+        AriGoal(FdConstraint constraint) {
             this.constraint = constraint;
         }
 
         @Override
         public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-            return Series.of(new Propagator(subst).input(constraint).solution());
+            return Series.of(Solver.registerConstraint(constraint, subst));
         }
     }
 
@@ -979,23 +1245,24 @@ public class Fd {
         return x + y == z ? Goal.success() : Goal.failure();
     }
 
-    static class NeqVC implements AriConstraint {
-        final Var x;
-        final int y;
 
-        public NeqVC(Var x, int y) {
-            this.x = x;
-            this.y = y;
+    static class AllDifferent implements FdConstraint {
+        final Set<Var> xs;
+        final SortedSet<Integer> ys;
+
+        public AllDifferent(Set<Var> xs, SortedSet<Integer> ys) {
+            this.xs = xs;
+            this.ys = ys;
         }
 
         @Override
         public Set<Var> vars() {
-            return HashSet.of(x);
+            return xs;
         }
 
         @Override
         public Cons symbolicRepr() {
-            return Cons.th(Cons.NIL, "v!=n", x, y);
+            return Cons.th(Cons.fromIterable(xs), "allDifferent", Cons.fromIterable(ys));
         }
 
         @Override
@@ -1004,85 +1271,68 @@ public class Fd {
         }
 
         @Override
-        public boolean propagate(Propagator propagator) {
-            return propagator.feed1(x, (xv, domX) -> {
-                if (domX.hasSolution()) {
-                    return domX.solution() != y;
-                } else if (domX.isEnumerated()) {
-                    return propagator.add(Enumerated.of(xv, domX.values().remove(y)));
-                } else {
-                    propagator.add(new NeqVC(xv, y));
-                    return true;
-                }
-            });
-        }
-    }
-
-    static class NeqVV implements AriConstraint {
-        final Var x, y;
-
-        public NeqVV(Var x, Var y) {
-            this.x = x;
-            this.y = y;
+        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+            if (isDefinite(dom)) {
+                solver.enqueue(this, 0);
+            }
         }
 
         @Override
-        public Set<Var> vars() {
-            return HashSet.of(x, y);
-        }
+        public boolean propagate(Solver solver) {
 
-        @Override
-        public Cons symbolicRepr() {
-            return Cons.th(Cons.NIL, "v!=v", x, y);
-        }
+            final List<Tuple2<Var, Option<SortedSet<Integer>>>> walkedVars =
+                    xs.map(v -> walkVar(v, solver.subst)).toList().map(v -> Tuple.of(v, solver.getDomain(v.index)));
 
-        @Override
-        public String toString() {
-            return symbolicRepr().toString();
-        }
+            solver.unregisterConstraint(this);
 
-        @Override
-        public boolean propagate(Propagator propagator) {
-            return propagator.feed2(x, y, (xv, domX, yv, domY) -> {
-                if (xv.seq == yv.seq) {
-                    return false;
-                } else if (domX.hasSolution()) {
-                    return new NeqVC(yv, domX.solution()).propagate(propagator);
-                } else if (domY.hasSolution()) {
-                    return new NeqVC(xv, domY.solution()).propagate(propagator);
-                } else if (domX.isEnumerated() && domY.isEnumerated() &&
-                        domX.values().intersect(domY.values()).isEmpty()) {
-                    return true;
-                } else {
-                    propagator.add(new NeqVV(xv, yv));
-                    return true;
-                }
-            });
+            Set<Var> xs2 = HashSet.empty();
+            SortedSet<Integer> ys2 = ys;
+
+            for (final Tuple2<Var, Option<SortedSet<Integer>>> t : walkedVars) {
+                if (!hasSolution(t._2)) continue;
+                final int sol = solution(t._2);
+                if (ys2.contains(sol)) return false;
+                ys2 = ys2.add(sol);
+            }
+
+            for (final Tuple2<Var, Option<SortedSet<Integer>>> t : walkedVars) {
+                if (hasSolution(t._2)) continue;
+                xs2 = xs2.add(t._1);
+                if (!isDefinite(t._2)) continue;
+                if (!solver.reduceDomain(t._1.index, t._2.get().diff(ys2))) return false;
+            }
+
+            if (!xs2.isEmpty()) solver.registerConstraint(new AllDifferent(xs2, ys2));
+
+            return true;
         }
     }
 
-    public static Goal neqO(Var x, Var y) {
-        return new AriGoal(new NeqVV(x, y));
-    }
-
-    public static Goal neqO(Var x, int y) {
-        return new AriGoal(new NeqVC(x, y));
-    }
-
-    public static Goal neqO(int x, Var y) {
-        return new AriGoal(new NeqVC(y, x));
-    }
-
-    public static Goal neqO(int x, int y) {
-        return x != y ? Goal.success() : Goal.failure();
-    }
+//    public static Goal neqO(Var x, Var y) {
+//        return new AriGoal(new AllDifferent(HashSet.of(x, y), TreeSet.empty()));
+//    }
+//
+//    public static Goal neqO(Var x, int y) {
+//        return new AriGoal(new NotInVS(x, y));
+//    }
+//
+//    public static Goal neqO(int x, Var y) {
+//        return new AriGoal(new NotInVS(y, x));
+//    }
+//
+//    public static Goal neqO(int x, int y) {
+//        return x != y ? Goal.success() : Goal.failure();
+//    }
 
     public static Goal allDifferentO(Var... vs) {
-        return Goal.seq(List.ofAll(Arrays.stream(vs)).crossProduct().filter(t -> t._1.seq < t._2.seq)
-                .map(t -> neqO(t._1, t._2)).toList());
+        return new AriGoal(new AllDifferent(HashSet.ofAll(Arrays.stream(vs)), TreeSet.empty()));
     }
 
-//    static class LeqVC implements AriConstraint {
+    public static Goal allDifferentO(Iterable<Integer> excludedValues, Var... vs) {
+        return new AriGoal(new AllDifferent(HashSet.ofAll(Arrays.stream(vs)), TreeSet.ofAll(excludedValues)));
+    }
+
+    //    static class LeqVC implements AriConstraint {
 //        final Var x;
 //        final int y;
 //
@@ -1361,7 +1611,7 @@ public class Fd {
 //        return x < y ? Goal.success() : Goal.failure();
 //    }
 
-    static class TimesCVV implements AriConstraint {
+    static class TimesCVV implements FdConstraint {
         final int x;
         final Var y;
         final Var z;
@@ -1387,86 +1637,64 @@ public class Fd {
             return symbolicRepr().toString();
         }
 
-        boolean propagateYZ(Var yv, Domain domY, Var zv, Domain domZ, Propagator propagator) {
-            if (domY.isEnumerated()) {
-                if (domZ.isEnumerated()) {
-                    final SortedSet<Integer> setY0 = domY.values();
-                    final SortedSet<Integer> setZ0 = domZ.values();
-                    SortedSet<Integer> setY1 = TreeSet.empty();
-                    SortedSet<Integer> setZ1 = TreeSet.empty();
-                    for (int z0 : setZ0) {
-                        if (z0 % x != 0) continue;
-                        final int y1 = z0 / x;
-                        if (setY0.contains(y1)) {
-                            setY1 = setY1.add(y1);
-                            setZ1 = setZ1.add(z0);
-                        }
-                    }
-                    return propagator.add(Enumerated.of(zv, setZ1)) &&
-                            propagator.add(Enumerated.of(yv, setY1));
-                } else {
-                    return propagator.add(Enumerated.of(zv, domY.values().map(y -> x * y)).intersect(domZ));
-                }
-            } else {
-                return propagateZ(yv, domY, zv, domZ, propagator);
-            }
-        }
-
-        boolean propagateZ(Var yv, Domain domY, Var zv, Domain domZ, Propagator propagator) {
-            if (domZ.isEnumerated()) {
-                final SortedSet<Integer> cZ = domZ.values().filter(z -> z % x == 0);
-                return propagator.add(Enumerated.of(zv, cZ)) &&
-                        propagator.add(Enumerated.of(yv, cZ.map(z -> z / x)).intersect(domY));
-            } else {
-                return true;
+        @Override
+        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+            if (isDefinite(dom)) {
+                solver.enqueue(this, 0);
             }
         }
 
         @Override
-        public boolean propagate(Propagator propagator) {
-            return propagator.feed2(y, z, (yv, domY, zv, domZ) -> {
-                if (yv.seq == zv.seq) {
-                    // Case: x*Y=Y
-                    if (x == 1) {
-                        // Y = Y => always satisfied
-                        return true;
-                    } else {
-                        // x*Y=Y for x!=1 => Y=0
-                        if (domY.hasSolution()) return domY.solution() == 0;
-                        else return propagator.add(Enumerated.of(yv, 0).intersect(domY));
-                    }
-                    // Below: Y and Z are distinct variables
-                } else if (x == 0) {
-                    // 0*Y=Z -> Z must be 0, Y is unconstrained
-                    if (domZ.hasSolution()) return domZ.solution() == 0;
-                    else return propagator.add(Enumerated.of(zv, 0).intersect(domZ));
-                } else if (domY.hasSolution() && domZ.hasSolution()) {
-                    // Verify solutions for Y and Z
-                    return x * domY.solution() == domZ.solution();
-                } else if (domY.hasSolution()) {
-                    // z := x*y
-                    return propagator.add(Enumerated.of(zv, x * domY.solution()).intersect(domZ));
-                } else if (domZ.hasSolution()) {
-                    final int solZ = domZ.solution();
-                    if (solZ % x != 0) return false;
-                    return propagator.add(Enumerated.of(yv, solZ / x).intersect(domY));
-                } else {
-                    // At this point, we have to keep the constraint
-                    propagator.add(new TimesCVV(x, yv, zv));
-                    if (!propagator.isExcited(yv) && !propagator.isExcited(zv)) {
-                        // Initial restriction on both variables
-                        return propagateYZ(yv, domY, zv, domZ, propagator);
-                    } else if (propagator.isExcited(yv) && domY.isEnumerated()) {
-                        return propagator.add(Enumerated.of(zv, domY.values().map(y -> x * y)).intersect(domZ));
-                    } else if (propagator.isExcited(zv)) {
-                        return propagateZ(yv, domY, zv, domZ, propagator);
-                    } else {
-                        return true;
-                    }
-                }
-            });
+        public boolean propagate(Solver solver) {
+            final Var y = walkVar(this.y, solver.subst), z = walkVar(this.z, solver.subst);
+
+            solver.unregisterConstraint(this);
+
+            if (x == 0) {
+                return solver.reduceDomain(z.index, 0);
+            }
+
+            // Fom this point on, x != 0
+
+            if (y.index == z.index) {
+                // Case: xy = y, x != 0
+                if (x == 1) return true;
+                return solver.reduceDomain(y.index, 0);
+            }
+
+            final Option<SortedSet<Integer>> domY = solver.getDomain(y.index),
+                    domZ = solver.getDomain(z.index);
+
+            if (isEmpty(domY) || isEmpty(domZ)) return false;
+
+            // From this point on:
+            if (hasSolution(domY) && hasSolution(domZ)) {
+                return x * solution(domY) == solution(domZ);
+            } else if (hasSolution(domY)) {
+                return solver.reduceDomain(z.index, x * solution(domY));
+            } else if (hasSolution(domZ)) {
+                final int zz = solution(domZ);
+                return zz % x == 0 && solver.reduceDomain(y.index, zz / x);
+            }
+
+            if (isDefinite(domY) && isDefinite(domZ)) {
+                final SortedSet<Integer> zs2 = domY.get().map(yy -> x * yy).intersect(domZ.get()),
+                        ys2 = zs2.map(zz -> zz / x);
+                return solver.reduceDomain(y.index, ys2) && solver.reduceDomain(z.index, zs2) &&
+                        solver.registerConstraint(this);
+            } else if (isDefinite(domY)) {
+                return solver.reduceDomain(z.index, domY.get().map(yy -> x * yy)) &&
+                        solver.registerConstraint(this);
+            } else if (isDefinite(domZ)) {
+                final SortedSet<Integer> zs2 = domZ.get().filter(zz -> zz % x == 0);
+                return solver.reduceDomain(z.index, zs2) && solver.reduceDomain(y.index, zs2.map(zz -> zz / x)) &&
+                        solver.registerConstraint(this);
+            }
+
+            return solver.registerConstraint(this);
         }
     }
+
 
     public static Goal timesO(int x, Var y, Var z) {
         if (x == 0) return Goal.unify(z, 0);
@@ -1580,63 +1808,10 @@ public class Fd {
 
         @Override
         public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-            final List<Tuple3<Var, Domain, Integer>> effectiveVars =
-                    vars.map(v -> walk(v, subst))
-                            .filter(o -> o instanceof Var)
-                            .map(o -> (Var) o).toSet().toList()
-                            // Enrich variables with domain
-                            .map(v -> Tuple.of(v,
-                                    getAttribute(v, subst, DOM_DOMAIN).map(d -> (Domain) d)))
-                            // Eliminate variables without a domain constraint
-                            .filter(t -> !t._2.isEmpty())
-                            // Extract the domain constraint, and add the number of arithmetic constraints
-                            .map(t -> Tuple.of(t._1, t._2.get(),
-                                    getAttribute(t._1, subst, ARI_DOMAIN)
-                                            .map(o -> ((AriAttribute) o).constraints().length())
-                                            .getOrElse(0)));
-
-            final List<Tuple2<Var, Domain>> enumerableVars =
-                    effectiveVars.filter(t -> t._2.isEnumerated())
-                            .map(t -> Tuple.of(t._1, t._2, t._2.values().size(), t._3))
-                            .sorted((t1, t2) -> {
-                                if (!t1._3.equals(t2._3)) return t1._3 - t2._3;
-                                else return t2._4 - t1._4;
-                            })
-                            .map(t -> Tuple.of(t._1, t._2));
-
-            final List<Tuple2<Var, Domain>> unboundedVars =
-                    effectiveVars.filter(t -> !t._2.isEnumerated())
-                            .sorted((t1, t2) -> t2._3 - t1._3)
-                            .map(t -> Tuple.of(t._1, t._2));
-
-            final List<Tuple2<Var, Domain>> allVars =
-                    enumerableVars.appendAll(unboundedVars);
-
-            if (allVars.isEmpty()) return Series.singleton(subst);
-
-            return Goal.seq(allVars.map(t -> new Candidate(t._1, t._2.valueStream())))
-                    .apply(subst);
+            return new Solver(subst).label(vars.toSet());
         }
     }
 
-    static class Candidate extends Goal {
-        final Var x;
-        final Seq<?> sequence;
-
-        Candidate(Var x, Seq<?> sequence) {
-            this.x = x;
-            this.sequence = sequence;
-        }
-
-        @Override
-        public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-            final Object v = walk(x, subst);
-            if (!(v instanceof Var)) return Series.singleton(subst);
-            if (sequence.isEmpty()) return Series.empty();
-            return choice(unify(v, sequence.head()),
-                    delayed(() -> new Candidate((Var) v, sequence.tail()))).apply(subst);
-        }
-    }
 
     public static Goal labeling(Var... vars) {
         return new LabelingGoal(List.ofAll(Arrays.stream(vars)));
