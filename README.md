@@ -7,7 +7,7 @@ MiniKanren with constraints in Java
 ## Introduction
 
 _Logish_ is a Java 8+ implementation of
-[**miniKanren**](http://minikanren.org/), an embedded fdDomain-specific
+[**miniKanren**](http://minikanren.org/), an embedded domain-specific
 language for logic programming. The project aims at emulating the key
 benefits of fully-fledged
 [**Prolog**](https://en.wikipedia.org/wiki/Prolog)-based constraint
@@ -17,7 +17,7 @@ performance, and hence the name.
 ## Features
 
   - _Logish_ is small and compact: the core system is in a single Java
-    source file `Logish.java`, and the finite fdDomain constraint solver
+    source file `Logish.java`, and the finite domain constraint solver
     resides in another file `Fd.java`.
   
   - The usage is simple: for basic use it suffices to import static
@@ -33,7 +33,7 @@ performance, and hence the name.
     
   - _Logish_ implements attributed variables, allowing multiple
     constraint solvers at the same time. The same mechanism is used by
-    `freeze` and the finite fdDomain solver.
+    `freeze` and the finite domain solver.
     
   
 ## Basic use

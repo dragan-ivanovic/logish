@@ -22,30 +22,31 @@ public class Fd {
 
     static final String DOM_DOMAIN = "fd:";
 
-    static abstract class FdDomain implements Constraint, Attribute {
-        abstract boolean isEmpty();
+    static abstract class Domain implements Constraint, Attribute {
 
-        abstract FdDomain intersect(FdDomain other);
-
-        abstract SortedSet<Integer> values();
-
-        abstract Stream<Integer> valueStream();
-
-        abstract boolean accepts(Integer x);
+        abstract Var variable();
 
         abstract boolean isDefinite();
 
-        abstract int getLowerBound();
+        abstract boolean isBounded();
 
-        abstract int getUpperBound();
-
-        abstract Option<Integer> optSolution();
+        abstract boolean isEmpty();
 
         abstract boolean hasSolution();
 
         abstract int solution();
 
-        abstract Var variable();
+        abstract Domain intersect(Domain other);
+
+        abstract boolean isSubsetOf(Domain other);
+
+        abstract SortedSet<Integer> get();
+
+        abstract boolean accepts(int x);
+
+        abstract int getLowerBound();
+
+        abstract int getUpperBound();
 
         @Override
         public final boolean delegating() {
@@ -65,12 +66,25 @@ public class Fd {
 
         @Override
         final public Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> combine(Var v, Attribute other, Map<Integer, Object> subst) {
-            final FdDomain combined = intersect((FdDomain) other);
+            final Domain combined = intersect((Domain) other);
             return combined.isEmpty() ? Option.none() : Option.of(Tuple.of(Option.of(combined), subst));
         }
+
+        static Domain of(Var v, int lowerBound, int upperBound) {
+            return new Bounded(v, lowerBound, upperBound);
+        }
+
+        static Domain of(Var v, SortedSet<Integer> values) {
+            return new Subset(v, values);
+        }
+
+        static Domain of(Var v) {
+            return new AnyInteger(v);
+        }
+
     }
 
-    static class AnyInteger extends FdDomain {
+    static class AnyInteger extends Domain {
         final Var v;
 
         private AnyInteger(Var v) {
@@ -83,7 +97,7 @@ public class Fd {
 
         @Override
         public String toString() {
-            return "Z";
+            return String.valueOf(v) + "\u2208Z";
         }
 
         @Override
@@ -102,13 +116,18 @@ public class Fd {
         }
 
         @Override
+        boolean isBounded() {
+            return false;
+        }
+
+        @Override
         int getLowerBound() {
-            return Integer.MIN_VALUE;
+            throw new UnsupportedOperationException();
         }
 
         @Override
         int getUpperBound() {
-            return Integer.MAX_VALUE;
+            throw new UnsupportedOperationException();
         }
 
         @Override
@@ -118,32 +137,27 @@ public class Fd {
 
         @Override
         int solution() {
-            return 0;
-        }
-
-        @Override
-        FdDomain intersect(FdDomain other) {
-            return other;
-        }
-
-        @Override
-        SortedSet<Integer> values() {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        Stream<Integer> valueStream() {
-            return Stream.unfold(0, x -> Option.of(Tuple.of(x >= 0 ? -x - 1 : -x, x)));
+        Domain intersect(Domain other) {
+            return other;
         }
 
         @Override
-        boolean accepts(Integer x) {
+        boolean isSubsetOf(Domain other) {
+            return !other.isDefinite() && !other.isBounded();
+        }
+
+        @Override
+        SortedSet<Integer> get() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        boolean accepts(int x) {
             return true;
-        }
-
-        @Override
-        Option<Integer> optSolution() {
-            return Option.none();
         }
 
         @Override
@@ -165,39 +179,158 @@ public class Fd {
         }
     }
 
-    static class Definite extends FdDomain {
+    static class Bounded extends Domain {
         final Var v;
-        final SortedSet<Integer> domain;
+        final int lb, ub;
 
-        private Definite(Var v, SortedSet<Integer> domain) {
+        public Bounded(Var v, int lb, int ub) {
             this.v = v;
-            this.domain = domain;
+            this.lb = lb;
+            this.ub = ub;
         }
 
-        public static Definite of(Var v, int... values) {
-            return new Definite(v, TreeSet.ofAll(values));
+        @Override
+        boolean isEmpty() {
+            return ub < lb;
         }
 
-        public static Definite of(Var v, SortedSet<Integer> values) {
-            return new Definite(v, values);
+        @Override
+        Domain intersect(Domain other) {
+            if (other.isDefinite()) {
+                return Domain.of(v, other.get().filter(x -> lb <= x && x <= ub));
+            } else if (other.isBounded()) {
+                return Domain.of(v, Math.max(lb, other.getLowerBound()), Math.min(ub, other.getUpperBound()));
+            } else {
+                return this;
+            }
+        }
+
+        @Override
+        boolean isSubsetOf(Domain other) {
+            if (isEmpty()) return other.isEmpty();
+            if (other.isEmpty()) return false;
+            if (other.isDefinite()) {
+                final int lb2 = other.getLowerBound(), ub2 = other.getUpperBound();
+                if (lb < lb2 || ub > ub2) return false;
+                final SortedSet<Integer> set2 = other.get();
+                if (set2.size() < ub - lb + 1) return false;
+                return set2.containsAll(Stream.rangeClosed(lb, ub));
+            } else if (other.isBounded()) {
+                final int lb2 = other.getLowerBound(), ub2 = other.getUpperBound();
+                return lb >= lb2 && ub <= ub2;
+            } else {
+                return true;
+            }
+        }
+
+        @Override
+        SortedSet<Integer> get() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        boolean accepts(int x) {
+            return lb <= x && x <= ub;
+        }
+
+        @Override
+        boolean isDefinite() {
+            return false;
+        }
+
+        @Override
+        boolean isBounded() {
+            return true;
+        }
+
+        @Override
+        int getLowerBound() {
+            return lb;
+        }
+
+        @Override
+        int getUpperBound() {
+            return ub;
+        }
+
+        @Override
+        boolean hasSolution() {
+            return lb == ub;
+        }
+
+        @Override
+        int solution() {
+            if (lb != ub) throw new IllegalStateException();
+            return lb;
+        }
+
+        @Override
+        Var variable() {
+            return v;
+        }
+
+        @Override
+        public Cons symbolicRepr() {
+            return Cons.th(Cons.NIL, "between", v, lb, ub);
+        }
+
+        @Override
+        public String toString() {
+            return String.valueOf(v) + "\u2208[" + lb + ", " + ub + ']';
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Bounded)) return false;
+            Bounded bounded = (Bounded) o;
+            return lb == bounded.lb &&
+                    ub == bounded.ub &&
+                    Objects.equals(v, bounded.v);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(v, lb, ub);
+        }
+    }
+
+    static class Subset extends Domain {
+        final Var v;
+        final SortedSet<Integer> subset;
+
+        private Subset(Var v, SortedSet<Integer> subset) {
+            this.v = v;
+            this.subset = subset;
+        }
+
+        public static Subset of(Var v, int... values) {
+            return new Subset(v, TreeSet.ofAll(values));
+        }
+
+        public static Subset of(Var v, SortedSet<Integer> values) {
+            return new Subset(v, values);
         }
 
         static final int MAX_TO_STRING = 32;
 
         @Override
         public String toString() {
-            final StringBuilder builder = new StringBuilder("[");
-            final int size = values().size();
+            final StringBuilder builder = new StringBuilder(String.valueOf(v));
+            builder.append("\u2208{");
+            final int size = get().size();
             builder.append(size);
             builder.append("]{");
             boolean isFirst = true;
             int count = 0;
-            for (Integer x : values()) {
+            for (Integer x : get()) {
                 if (!isFirst) builder.append(", ");
                 builder.append(x);
                 isFirst = false;
                 if (++count == MAX_TO_STRING) {
-                    if (count < size) builder.append(", ...");
+                    if (count < size) builder.append(", ... (")
+                            .append(get().size() - count - 1)
+                            .append(" more)");
                     break;
                 }
             }
@@ -215,110 +348,122 @@ public class Fd {
         }
 
         @Override
+        boolean isBounded() {
+            return !subset.isEmpty();
+        }
+
+        @Override
         int getLowerBound() {
-            return domain.min().getOrElse(Integer.MAX_VALUE);
+            return subset.min().get();
         }
 
         @Override
         int getUpperBound() {
-            return domain.max().getOrElse(Integer.MIN_VALUE);
+            return subset.max().get();
         }
 
         @Override
         public Cons symbolicRepr() {
-            return Cons.th(Cons.fromIterable(domain), "dom", v);
+            return Cons.th(Cons.fromIterable(subset), "dom", v);
         }
 
         @Override
-        public SortedSet<Integer> values() {
-            return domain;
-        }
-
-        @Override
-        Stream<Integer> valueStream() {
-            return domain.toStream();
+        public SortedSet<Integer> get() {
+            return subset;
         }
 
         @Override
         public boolean isEmpty() {
-            return domain.isEmpty();
-        }
-
-        @Override
-        Option<Integer> optSolution() {
-            if (domain.size() == 1) return Option.of(domain.head());
-            else return Option.none();
+            return subset.isEmpty();
         }
 
         @Override
         boolean hasSolution() {
-            return domain.size() == 1;
+            return subset.size() == 1;
         }
 
         @Override
         int solution() {
-            return domain.head();
+            return subset.head();
         }
 
         @Override
-        public boolean accepts(Integer x) {
-            return domain.contains(x);
+        public boolean accepts(int x) {
+            return subset.contains(x);
         }
 
         @Override
-        public FdDomain intersect(FdDomain other) {
-            if (!other.isDefinite()) return this;
-            else return new Definite(v, domain.intersect(((Definite) other).domain));
+        public Domain intersect(Domain other) {
+            if (other.isDefinite()) {
+                return new Subset(v, subset.intersect(((Subset) other).subset));
+            } else if (other.isBounded()) {
+                final int lb2 = other.getLowerBound(), ub2 = other.getUpperBound();
+                return Domain.of(v, subset.filter(x -> lb2 <= x && x <= ub2));
+            } else {
+                return this;
+            }
+        }
+
+        @Override
+        boolean isSubsetOf(Domain other) {
+            if (other.isDefinite()) {
+                return other.get().containsAll(get());
+            } else if (other.isBounded()) {
+                final int lb2 = other.getLowerBound(), ub2 = other.getUpperBound();
+                return !get().exists(x -> x < lb2 || x > ub2);
+            } else {
+                return true;
+            }
         }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
-            if (!(o instanceof Definite)) return false;
-            Definite that = (Definite) o;
+            if (!(o instanceof Subset)) return false;
+            Subset that = (Subset) o;
             return v.equals(that.v) &&
-                    domain.equals(that.domain);
+                    subset.equals(that.subset);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(v, domain);
+            return Objects.hash(v, subset);
         }
     }
 
     static class DomGoal extends Goal {
         final Var v0;
-        final FdDomain fdDomain;
+        final Domain domain;
 
-        DomGoal(Var v, FdDomain fdDomain) {
+        DomGoal(Var v, Domain domain) {
             this.v0 = v;
-            this.fdDomain = fdDomain;
+            this.domain = domain;
         }
 
         @Override
         public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
             // Fail immediately if the constraint is empty
-            if (fdDomain.isEmpty()) return Series.empty();
+            if (domain.isEmpty()) return Series.empty();
 
             final Object o = walk(v0, subst);
             if (o instanceof Integer) {
-                return fdDomain.accepts((Integer) o) ? Series.singleton(subst) : Series.empty();
+                return domain.accepts((Integer) o) ? Series.singleton(subst) : Series.empty();
             } else if (!(o instanceof Var)) {
                 return Series.empty();
             }
 
-            final FdDomain newConstraint;
+            final Domain newConstraint;
             final Var v = (Var) o;
             final Option<Attribute> optOldDomain = getAttribute(v, subst, DOM_DOMAIN);
             final Map<Integer, Object> subst1;
             if (optOldDomain.isEmpty()) {
-                newConstraint = fdDomain;
+                newConstraint = domain;
                 subst1 = subst;
             } else {
                 final Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> combination =
-                        optOldDomain.get().combine(v, fdDomain, subst);
+                        optOldDomain.get().combine(v, domain, subst);
                 if (combination.isEmpty()) return Series.empty();
-                newConstraint = (FdDomain) combination.get()._1.get();
+                newConstraint = (Domain) combination.get()._1.get();
                 subst1 = combination.get()._2;
             }
 
@@ -331,12 +476,12 @@ public class Fd {
     }
 
     public static Goal dom(Var v, Seq<Integer> elements) {
-        return new DomGoal(v, new Definite(v, TreeSet.ofAll(elements)));
+        return new DomGoal(v, new Subset(v, TreeSet.ofAll(elements)));
     }
 
     public static Goal domAll(Seq<Integer> elements, Var... vars) {
         return Goal.seq(List.ofAll(Arrays.stream(vars))
-                .map(v -> new DomGoal(v, new Definite(v, TreeSet.ofAll(elements)))));
+                .map(v -> new DomGoal(v, new Subset(v, TreeSet.ofAll(elements)))));
     }
 
     public static Goal in(Var v, int... elements) {
@@ -344,7 +489,7 @@ public class Fd {
     }
 
     public static Goal range(Var v, int lb, int ub) {
-        return new DomGoal(v, new Definite(v, TreeSet.rangeClosed(lb, ub)));
+        return new DomGoal(v, new Subset(v, TreeSet.rangeClosed(lb, ub)));
     }
 
     // -- Arithmetic constraints --
@@ -391,7 +536,7 @@ public class Fd {
          */
         Set<Var> vars();
 
-        void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom);
+        void maybeAddToAgenda(Solver solver, int varIndex, Domain dom);
 
         /**
          * Tries to propagate the constraint.
@@ -403,20 +548,20 @@ public class Fd {
     }
 
 
-    static boolean isEmpty(Option<SortedSet<Integer>> dom) {
-        return !dom.isEmpty() && dom.get().isEmpty();
+    static boolean isEmpty(Domain dom) {
+        return dom.isEmpty();
     }
 
-    static boolean hasSolution(Option<SortedSet<Integer>> dom) {
-        return !dom.isEmpty() && dom.get().size() == 1;
+    static boolean hasSolution(Domain dom) {
+        return dom.hasSolution();
     }
 
-    static int solution(Option<SortedSet<Integer>> dom) {
-        return dom.get().head();
+    static int solution(Domain dom) {
+        return dom.solution();
     }
 
-    static boolean isDefinite(Option<SortedSet<Integer>> dom) {
-        return !dom.isEmpty();
+    static boolean isDefinite(Domain dom) {
+        return dom.isDefinite();
     }
 
     /**
@@ -490,13 +635,13 @@ public class Fd {
 
         // ---------- Excited variables ----------
 
-        void excite(int varIndex, Option<SortedSet<Integer>> dom) {
+        void excite(int varIndex, Domain dom) {
             for (final FdConstraint c : getConstraints(varIndex)) {
                 c.maybeAddToAgenda(this, varIndex, dom);
             }
         }
 
-        void excite(Var v, Option<SortedSet<Integer>> dom) {
+        void excite(Var v, Domain dom) {
             excite(walkVarIndex(v.index, subst), dom);
         }
 
@@ -506,7 +651,7 @@ public class Fd {
          * <p>Each element is either a finite set of allowed integers (right), or a  finite set of excluded
          * integers (left).</p>
          */
-        Map<Integer, Option<SortedSet<Integer>>> varDomains = emptyMap();
+        Map<Integer, Domain> varDomains = emptyMap();
         /**
          * Set of variables that were already instantiated.
          */
@@ -518,25 +663,24 @@ public class Fd {
          * @param varIndex
          * @return the variable domain
          */
-        Option<SortedSet<Integer>> getDomain(int varIndex) {
-            final Option<Option<SortedSet<Integer>>> optCurrent = varDomains.get(varIndex);
+        Domain getDomain(int varIndex) {
+            final Option<Domain> optCurrent = varDomains.get(varIndex);
             if (!optCurrent.isEmpty()) return optCurrent.get();
             final Object value = subst.get(varIndex).get();
-            final Option<SortedSet<Integer>> result;
+            final Domain result;
             if (value instanceof Var) {
                 final Option<Attribute> fromSubst = getAttribute(varIndex, subst, DOM_DOMAIN);
                 if (fromSubst.isEmpty()) {
-                    result = Option.none();
+                    result = Domain.of(new Var(varIndex));
                 } else {
-                    final FdDomain d = (FdDomain) fromSubst.get();
-                    result = d.isDefinite() ? Option.of(d.values()) : Option.none();
+                    result = (Domain) fromSubst.get();
                 }
             } else {
                 instantiatedVars = instantiatedVars.add(varIndex);
                 if (value instanceof Integer) {
-                    result = Option.of(TreeSet.of((Integer) value));
+                    result = Subset.of(new Var(varIndex), (Integer) value);
                 } else {
-                    result = Option.of(emptySet());
+                    result = Domain.of(new Var(varIndex));
                 }
             }
             varDomains = varDomains.put(varIndex, result);
@@ -549,28 +693,16 @@ public class Fd {
         }
 
         boolean reduceDomain(int varIndex, SortedSet<Integer> values) {
-            return reduceDomain(varIndex, Option.of(values));
+            return reduceDomain(varIndex, Domain.of(new Var(varIndex), values));
         }
 
-        boolean reduceDomain(int varIndex, Option<SortedSet<Integer>> dom) {
-            final Option<SortedSet<Integer>> dom0 = getDomain(varIndex);
-            final Option<SortedSet<Integer>> dom1;
-            if (dom.isEmpty()) {
-                if (dom0.isEmpty()) {
-                    return true;
-                } else { // dom0.isRight()
-                    return !dom0.get().isEmpty();
-                }
-            } else if (dom0.isEmpty()) { // dom.isRight()
-                dom1 = dom;
-            } else { // dom.isRight() && dom0.isRight()
-                final SortedSet<Integer> in0 = dom0.get(), in1 = in0.intersect(dom.get());
-                if (in1.containsAll(in0)) return !in0.isEmpty();
-                dom1 = Option.of(in1);
-            }
+        boolean reduceDomain(int varIndex, Domain dom) {
+            final Domain dom0 = getDomain(varIndex);
+            final Domain dom1 = dom0.intersect(dom);
+            if (dom1.isEmpty()) return false;
+            if (dom0.isSubsetOf(dom1)) return true;
             varDomains = varDomains.put(varIndex, dom1);
-            if (isEmpty(dom1)) return false;
-            excite(varIndex, dom1);
+            excite(varIndex, dom);
             return true;
         }
 
@@ -632,15 +764,16 @@ public class Fd {
 
         static Option<Map<Integer, Object>> instantiate(Var v, int x, Map<Integer, Object> subst) {
             final Solver solver = new Solver(subst);
-            if (!solver.reduceDomain(walkVarIndex(v.index, subst), Option.of(TreeSet.of(x))))
+            final Var walked = walkVar(v, subst);
+            if (!solver.reduceDomain(walked.index, Subset.of(walked, x)))
                 return Option.none();
             return solver.solution();
         }
 
-        static Option<Map<Integer, Object>> addDomain(FdDomain d, Map<Integer, Object> subst) {
+        static Option<Map<Integer, Object>> addDomain(Domain d, Map<Integer, Object> subst) {
             final Solver solver = new Solver(subst);
-            if (!solver.reduceDomain(walkVarIndex(d.variable().index, subst),
-                    (d.isDefinite() ? Option.of(d.values()) : Option.none())))
+            final Var walked = walkVar(d.variable(), subst);
+            if (!solver.reduceDomain(walked.index, d))
                 return Option.none();
             return solver.solution();
         }
@@ -655,14 +788,14 @@ public class Fd {
         Logish.Series<Map<Integer, Object>> label(Set<Var> vars) {
             if (!getToFixpoint()) return Series.empty();
             final List<Tuple4<Var, SortedSet<Integer>, Integer, Integer>> candidates =
-                vars.map(v -> walkVar(v, subst)).toList().map(v -> Tuple.of(v, getDomain(v.index)))
-                        .filter(t -> isDefinite(t._2) && !hasSolution(t._2))
-                        .map(t -> Tuple.of(t._1, t._2.get(), t._2.get().size(), getConstraints(t._1.index).length()))
-                    .sorted((t1, t2)  -> t1._3.equals(t2._3) ? t2._4 - t1._4: t1._3 - t2._3);
+                    vars.map(v -> walkVar(v, subst)).toList().map(v -> Tuple.of(v, getDomain(v.index)))
+                            .filter(t -> isDefinite(t._2) && !hasSolution(t._2))
+                            .map(t -> Tuple.of(t._1, t._2.get(), t._2.get().size(), getConstraints(t._1.index).length()))
+                            .sorted((t1, t2) -> t1._3.equals(t2._3) ? t2._4 - t1._4 : t1._3 - t2._3);
             if (candidates.exists(t -> t._3 == 0)) return Series.empty();
             if (candidates.isEmpty()) return Series.of(solution());
             final Tuple4<Var, SortedSet<Integer>, Integer, Integer> chosen = candidates.head();
-            final int half = chosen._3/2, chosenVarIndex = chosen._1.index;
+            final int half = chosen._3 / 2, chosenVarIndex = chosen._1.index;
             final SortedSet<Integer> firstHalf = chosen._2.take(half),
                     secondHalf = chosen._2.drop(half);
             final Solver branch = duplicate();
@@ -708,11 +841,8 @@ public class Fd {
             // Set domains for unsolved variables
             for (final int varSeq : varDomains.keysIterator()) {
                 if (solved.containsKey(varSeq)) continue;
-                final Option<SortedSet<Integer>> d = varDomains.get(varSeq).get();
-                final FdDomain dom;
-                if (d.isEmpty()) dom = AnyInteger.of(new Var(varSeq));
-                else dom = Definite.of(new Var(varSeq), d.get());
-                result = setAttribute(varSeq, result, DOM_DOMAIN, dom);
+                final Domain d = varDomains.get(varSeq).get();
+                result = setAttribute(varSeq, result, DOM_DOMAIN, d);
             }
 
             // Set arithmetic constraints for unsolved variables
@@ -768,7 +898,7 @@ public class Fd {
         }
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
             // If the domain of either x or z has become definite, schedule the propagator to replace
             // itself with more precise PlusVCV_X
             if (isDefinite(dom)) {
@@ -787,7 +917,7 @@ public class Fd {
                 return y == 0;
             }
 
-            final Option<SortedSet<Integer>> domX = solver.getDomain(x.index),
+            final Domain domX = solver.getDomain(x.index),
                     domZ = solver.getDomain(z.index);
 
             if (isEmpty(domX) || isEmpty(domZ)) return false;
@@ -849,7 +979,7 @@ public class Fd {
         }
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
             if (isDefinite(dom)) {
                 solver.enqueue(this, 1);
             }
@@ -872,7 +1002,7 @@ public class Fd {
 
             // x and y are distinct variables
 
-            final Option<SortedSet<Integer>> domX = solver.getDomain(x.index),
+            final Domain domX = solver.getDomain(x.index),
                     domY = solver.getDomain(y.index);
 
             if (isEmpty(domX) || isEmpty(domY)) return false;
@@ -937,7 +1067,7 @@ public class Fd {
         final static int CARD_THRESHOLD = 256;
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
             if (isDefinite(dom)) {
                 solver.enqueue(this, 3);
             }
@@ -973,7 +1103,7 @@ public class Fd {
 
             // x, y, z are three distinct variables
 
-            final Option<SortedSet<Integer>> domX = solver.getDomain(x.index), domY = solver.getDomain(y.index),
+            final Domain domX = solver.getDomain(x.index), domY = solver.getDomain(y.index),
                     domZ = solver.getDomain(z.index);
 
             if (isEmpty(domX) || isEmpty(domY) || isEmpty(domZ)) return false;
@@ -1043,7 +1173,7 @@ public class Fd {
         }
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
             if (!isDefinite(dom)) return;
             final SortedSet<Integer> set = dom.get();
             if ((walkVar(x, solver.subst).index == varIndex && cXY.exists(t -> !set.contains(t._1))) ||
@@ -1083,7 +1213,7 @@ public class Fd {
 
             // x, y, z are three distinct variables
 
-            final Option<SortedSet<Integer>> domX = solver.getDomain(x.index), domY = solver.getDomain(y.index),
+            final Domain domX = solver.getDomain(x.index), domY = solver.getDomain(y.index),
                     domZ = solver.getDomain(z.index);
 
             if (isEmpty(domX) || isEmpty(domY) || isEmpty(domZ)) return false;
@@ -1271,7 +1401,7 @@ public class Fd {
         }
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
             if (isDefinite(dom)) {
                 solver.enqueue(this, 0);
             }
@@ -1280,7 +1410,7 @@ public class Fd {
         @Override
         public boolean propagate(Solver solver) {
 
-            final List<Tuple2<Var, Option<SortedSet<Integer>>>> walkedVars =
+            final List<Tuple2<Var, Domain>> walkedVars =
                     xs.map(v -> walkVar(v, solver.subst)).toList().map(v -> Tuple.of(v, solver.getDomain(v.index)));
 
             solver.unregisterConstraint(this);
@@ -1288,14 +1418,14 @@ public class Fd {
             Set<Var> xs2 = HashSet.empty();
             SortedSet<Integer> ys2 = ys;
 
-            for (final Tuple2<Var, Option<SortedSet<Integer>>> t : walkedVars) {
+            for (final Tuple2<Var, Domain> t : walkedVars) {
                 if (!hasSolution(t._2)) continue;
                 final int sol = solution(t._2);
                 if (ys2.contains(sol)) return false;
                 ys2 = ys2.add(sol);
             }
 
-            for (final Tuple2<Var, Option<SortedSet<Integer>>> t : walkedVars) {
+            for (final Tuple2<Var, Domain> t : walkedVars) {
                 if (hasSolution(t._2)) continue;
                 xs2 = xs2.add(t._1);
                 if (!isDefinite(t._2)) continue;
@@ -1638,7 +1768,7 @@ public class Fd {
         }
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Option<SortedSet<Integer>> dom) {
+        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
             if (isDefinite(dom)) {
                 solver.enqueue(this, 0);
             }
@@ -1662,7 +1792,7 @@ public class Fd {
                 return solver.reduceDomain(y.index, 0);
             }
 
-            final Option<SortedSet<Integer>> domY = solver.getDomain(y.index),
+            final Domain domY = solver.getDomain(y.index),
                     domZ = solver.getDomain(z.index);
 
             if (isEmpty(domY) || isEmpty(domZ)) return false;
