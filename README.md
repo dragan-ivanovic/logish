@@ -57,11 +57,10 @@ named `q`, and returns a stream of values for `q` that satisfy a
 logical goal to the right of `->`.  Here, the goal is `unify(q,
 "World")`, which unifies (establishes logical equality between)
 its arguments.  Expression `run(q -> unify(q, "World")` can be read as: \`_Find q
-that satisfies goal `unify(q, "World")`_.\` The obvious solution is for
-the initially unknown variable `q` to become equal to string literal
-`"World"`.  This is the only solution for `q`, and the resulting
-`Stream` has exactly one member. Therefore, the program prints
-`"Hello, World!"`.
+that makes goal `unify(q, "World")` true_.' That is only possible when _q_ is in 
+fact equal to the string literal `"World"`, and therefore resulting
+stream of values for _q_ has exactly one member. The program prints
+`"Hello, World!"` ands stops.
 
 
 ## Logic variables and goals
