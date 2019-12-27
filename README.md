@@ -67,9 +67,11 @@ stream of values for _q_ has exactly one member. The program prints
 
 A **logic variable** is an instance of class `Logish.Var`.  Like a
 mathematical variable, it serves as a placeholder for a value (an
-object).  But unlike Java variables, a logic variable is not a location in
+object).  Unlike Java variables, a logic variable is not a mutable location in
 memory that stores the value: after its value has become known, it
-never changes.  In logic programming, and therefore in _Logish_, the
+never changes.  And it also differs from a `final` variable, because its value 
+is initially unknown and may become known only in the process of executing a logic goal. 
+In logic programming, and therefore in _Logish_, the
 computation if effectively a search for values of the variables that
 satisfy the **goal**.
 
