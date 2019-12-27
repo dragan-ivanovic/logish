@@ -54,7 +54,7 @@ public class MinimalLogish {
 
 In this example, method `run()` executes a query over a logical variable
 named `q`, and returns a stream of values for `q` that satisfy a
-logical goal to the left of `->`.  Here, the goal is `unify(q,
+logical goal to the right of `->`.  Here, the goal is `unify(q,
 "World")`, which unifies (establishes logical equality between)
 its arguments.  Expression `run(q -> unify(q, "World")` can be read as: \`_Find q
 that satisfies goal `unify(q, "World")`_.\` The obvious solution is for
@@ -87,31 +87,27 @@ _io.vavr.collection.List_) whose elements are integers 1, 2, and 3.  So, for
 which _q_ is this goal satisfied?  There are three solutions: _q_=1, _q_=2,
 and _q_=3, and so the resulting stream has three elements, 1, 2, and 3.
 
-At any point in the execution of a query, the object that a logical variable
-represents can be either known or unknown.  In the former case we say that the
-variable is __instantiated__, and in the latter that it is __free__.
-
 As in mathematics, logic variables remember when they refer to the same value:
-when we know or assume that _x_=_y_, then as soon as we learn _y_=3, we
-automatically have _x_=3 as well.  Let us now take a look at the following
+if we know that _x_=_y_, then as soon as we learn _y_=3, we
+automatically have _x_=3 as well.  In the following
 query:
 
 ```
 run(q -> fresh(x -> seq(unify(q, x), element(x, List.of(1, 2, 3)))))
 ```
 
-We have two novelties here.  The first one is `fresh(x -> G)` that creates a
-fresh free variable and passes it to _G_ in _x_.  And the second one
-is  `seq(G1, G2)`, a composite goal that succeeds exactly when both
-_G1_ and _G2_ succeed.
+we have two new elements.  The first one is `fresh(x -> G)` that creates a
+fresh free variable _x_ and passes it to _G_.  And the second one
+hast the form `seq(G1, G2)`, and represents a composite goal that succeeds exactly
+when both _G1_ and _G2_ succeed (one after another). Goal `unify(q, x)` has the same
+meaning as _q_=_x_ in mathematics, which is different from the meaning of `=` (assignment) or `==` 
+(object identity) in Java.  Since _x_=_q_, this query unsurprisingly
+produces exactly the same solutions as the previous one.  
 
-This query produces exactly the same solutions as the previous one.  Goal
-`unify(q, x)` has the same meaning as _q_=_x_ in mathematics, but we cannot
-use `=` or `==` in _Logish_ because these operators have a specific meaning in
-Java.  Goal `unify(X, Y)` is technically called the **unification** of _X_ and
-_Y_.  Both can be arbitrary Java objects.
+## Unification
 
-Unification behaves exactly as Java's _java.util.Objects.equals(X, Y)_, except
+Goal `unify(X, Y)` is technically called the **unification** of _X_ and
+_Y_.  Unification behaves exactly as Java's _java.util.Objects.equals(X, Y)_, except
 for these three cases:
 
   * When both _X_ and _Y_ are free variables.  In this case, _Logish_ proceeds
