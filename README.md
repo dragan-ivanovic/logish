@@ -98,11 +98,11 @@ run(q -> fresh(x -> seq(unify(q, x), element(x, List.of(1, 2, 3)))))
 ```
 
 we have two new elements.  The first one is `fresh(x -> G)` that creates a
-fresh free variable _x_ and passes it to _G_.  And the second one
-hast the form `seq(G1, G2)`, and represents a composite goal that succeeds exactly
+fresh variable _x_ (with initially unknown value) and passes it to _G_.  Next,
+`seq(G1, G2)` is a composite goal that succeeds exactly
 when both _G1_ and _G2_ succeed (one after another). Goal `unify(q, x)` has the same
-meaning as _q_=_x_ in mathematics, which is different from the meaning of `=` (assignment) or `==` 
-(object identity) in Java.  Since _x_=_q_, this query unsurprisingly
+meaning as _q_=_x_ in mathematics, which is different from the meaning of `=` 
+(assignment) or `==` (object identity check) in Java.  Since _x_=_q_, this query unsurprisingly
 produces exactly the same solutions as the previous one.  
 
 ## Unification
