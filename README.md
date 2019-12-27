@@ -10,7 +10,7 @@ _Logish_ is a Java 8+ implementation of
 [**miniKanren**](http://minikanren.org/), an embedded domain-specific
 language for logic programming. The project aims at emulating the key
 benefits of fully-fledged constraint logic programming systems based on 
-[**Prolog**](https://en.wikipedia.org/wiki/Prolog)-based in a Java-only 
+[**Prolog**](https://en.wikipedia.org/wiki/Prolog) in a Java-only 
 environment at an acceptable performance, and hence the name.
 
 ## Features
