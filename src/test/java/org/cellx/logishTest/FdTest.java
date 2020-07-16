@@ -14,11 +14,19 @@ import static org.cellx.logish.Logish.runC;
 
 public class FdTest {
 
-    static List<Object> executeQueryC(String title, int n, Stream<Tuple2<Object, List<Cons>>> solutions) {
-        System.out.println("## " + title + ": up to first " + n + " solution(s)");
-        List<Tuple2<Object, List<Cons>>> taken = solutions.take(n).toList();
+    /**
+     * Runs a query printing the title and solutions.
+     *
+     * @param title        The title to print out on the console
+     * @param maxSolutions The maximum number of solutions to take
+     * @param solutions    The solution stream
+     * @return The list of objects corresponding to the solutions
+     */
+    static List<Object> executeQueryC(String title, int maxSolutions, Stream<Tuple2<Object, List<Cons>>> solutions) {
+        System.out.println("## " + title + ": up to first " + maxSolutions + " solution(s)");
+        List<Tuple2<Object, List<Cons>>> taken = solutions.take(maxSolutions).toList();
         taken.zipWithIndex().forEach(tuple2 -> {
-            final String lead = String.format("    %2d=> ", tuple2._2+1);
+            final String lead = String.format("    %2d=> ", tuple2._2 + 1);
             System.out.print(lead);
             System.out.println(tuple2._1._1);
             if (!tuple2._1._2.isEmpty()) {
