@@ -4,6 +4,7 @@ import io.vavr.Tuple;
 import io.vavr.Tuple2;
 import io.vavr.collection.List;
 import io.vavr.collection.Stream;
+import org.cellx.logish.Cons;
 import org.cellx.logish.Logish;
 import org.junit.Test;
 
@@ -15,7 +16,7 @@ import static org.junit.Assert.assertTrue;
 public class NQueensTest {
 
     static Logish.Goal nQueens(int n, Object board) {
-        return nQueens1(1, n, Logish.Cons.NIL, Logish.Cons.fromIterable(Stream.rangeClosed(1, n)), board);
+        return nQueens1(1, n, Cons.NIL, Cons.fromIterable(Stream.rangeClosed(1, n)), board);
     }
 
     static boolean attacks(int r1, int c1, int r2, int c2) {
@@ -24,17 +25,17 @@ public class NQueensTest {
 
     static Logish.Goal nQueens1(int r, int n, Object queens, Object available, Object board) {
         return delayed(() -> {
-            if (r > n) return seq(unify(available, Logish.Cons.NIL), unify(queens, board));
+            if (r > n) return seq(unify(available, Cons.NIL), unify(queens, board));
             else return fresh((prefix, cv, suffix) ->
                     seq(
-                            appendO(prefix, Logish.Cons.th(suffix, cv), available),
+                            appendO(prefix, Cons.make(suffix, cv), available),
                             not(fresh((r2v, c2v) -> seq(
-                                    memberO(Logish.Cons.th(c2v, r2v), queens),
+                                    memberO(Cons.make(c2v, r2v), queens),
                                     test(Integer.class, cv, r2v, c2v, (c, r2, c2) -> attacks(r, c, r2, c2))
                             ))),
                             fresh(rest -> seq(
                                     appendO(prefix, suffix, rest),
-                                    nQueens1(r + 1, n, Logish.Cons.th(queens, Logish.Cons.th(cv, r)), rest, board)
+                                    nQueens1(r + 1, n, Cons.make(queens, Cons.make(cv, r)), rest, board)
                             ))
                     ));
         });
@@ -49,8 +50,8 @@ public class NQueensTest {
                     assertEquals(2, sols.length());
                     for (final Object sol : sols) {
                         final List<Tuple2<Integer, Integer>> typedSol =
-                                List.ofAll((Logish.Cons) sol).map(e -> {
-                                    final Logish.Cons z = (Logish.Cons) e;
+                                List.ofAll((Cons) sol).map(e -> {
+                                    final Cons z = (Cons) e;
                                     int r = (Integer)z.car();
                                     int c = (Integer)z.cdr();
                                     assertTrue(r >= 1 && r <= 4);
@@ -76,8 +77,8 @@ public class NQueensTest {
                     assertEquals(10, sols.length());
                     for (final Object sol : sols) {
                         final List<Tuple2<Integer, Integer>> typedSol =
-                                List.ofAll((Logish.Cons) sol).map(e -> {
-                                    final Logish.Cons z = (Logish.Cons) e;
+                                List.ofAll((Cons) sol).map(e -> {
+                                    final Cons z = (Cons) e;
                                     int r = (Integer)z.car();
                                     int c = (Integer)z.cdr();
                                     assertTrue(r >= 1 && r <= 5);

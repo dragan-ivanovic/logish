@@ -20,18 +20,16 @@ environment at an acceptable performance, and hence the name.
     resides in another file `Fd.java`.
   
   - The usage is simple: for basic use it suffices to import static
-    member `Logish.run`, and all static members of `Logish.Goal`.
+    method `Logish.run`, and all static members of `Logish.Goal`.
   
   - _Logish_ internally uses [Java Vavr library](https://www.vavr.io/)
     for immutable functional data structures in Java.  A query result
     is a `Stream` of objects (no need to specify upfront how many
     solutions to look for).
     
-  - Constraint solving over finite (integer) domains (with linear
-    constraints).
-    
-  - _Logish_ implements attributed variables, allowing multiple
-    constraint solvers at the same time.
+  - It contains constraint solving over finite (integer) domains (with linear
+    constraints).  The underlying mechanism for constraint solving are attributed 
+    variables, allowing coexistence of multiple constraint solvers.
     
   
 ## Basic use

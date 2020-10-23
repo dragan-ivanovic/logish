@@ -3,7 +3,7 @@ package org.cellx.logishTest;
 import io.vavr.collection.List;
 import io.vavr.collection.Stream;
 import org.cellx.logish.Logish;
-import org.cellx.logish.Logish.Cons;
+import org.cellx.logish.Cons;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -130,7 +130,7 @@ public class BaseTest {
                 run(q ->
                         fresh((x, a, c) ->
                                 seq(
-                                        appendO(Cons.NIL, Cons.th(q, a), x),
+                                        appendO(Cons.NIL, Cons.make(q, a), x),
                                         unify(x, Cons.list(4, 5, c)),
                                         unify(c, 6)))),
                 sols -> {
@@ -145,7 +145,7 @@ public class BaseTest {
     public void testAppend7() {
         executeQuery("append(A, [Q | B], [4, 5, 6, 7])", 10,
                 run(q ->
-                        fresh((a, b) -> appendO(a, Cons.th(b, q), Cons.list(4, 5, 6, 7)))),
+                        fresh((a, b) -> appendO(a, Cons.make(b, q), Cons.list(4, 5, 6, 7)))),
                 sols -> {
                     // 4 solutions: 4, 5, 6, 7
                     assertEquals(4, sols.length());
@@ -219,7 +219,7 @@ public class BaseTest {
     static Logish.Goal listOfO(Object x, Object e) {
         return fresh(t -> conda(
                 clause(unify(x, Cons.NIL), Logish.Goal::success),
-                clause(unify(x, Cons.th(t, e)), () -> listOfO(t, e)))
+                clause(unify(x, Cons.make(t, e)), () -> listOfO(t, e)))
         );
     }
 

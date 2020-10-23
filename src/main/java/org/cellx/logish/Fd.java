@@ -43,7 +43,7 @@ public class Fd {
         }
 
         @Override
-        final public Option<Map<Integer, Object>> validate(Var v, Object o, Map<Integer, Object> subst) {
+        final public Option<Subst> validate(Var v, Object o, Subst subst) {
             if (!(o instanceof Integer && domain.accepts((Integer) o))) return Option.none();
             return Solver.instantiate(v, (Integer) o, subst);
         }
@@ -54,7 +54,7 @@ public class Fd {
         }
 
         @Override
-        final public Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> combine(Var v, Attribute other, Map<Integer, Object> subst) {
+        final public Option<Tuple2<Option<Attribute>, Subst>> combine(Var v, Attribute other, Subst subst) {
             final Domain combined = domain.intersect(((DomainAttribute) other).domain);
             return combined.isEmpty() ? Option.none() : Option.of(Tuple.of(Option.of(new DomainAttribute(v, combined)), subst));
         }
@@ -114,7 +114,7 @@ public class Fd {
 
         @Override
         Cons symbolicRepr(Var v) {
-            return Cons.th(Cons.NIL, "int", v);
+            return Cons.make(Cons.NIL, "int", v);
         }
 
         @Override
@@ -281,7 +281,7 @@ public class Fd {
 
         @Override
         public Cons symbolicRepr(Var v) {
-            return Cons.th(Cons.NIL, "between", v, lb, ub);
+            return Cons.make(Cons.NIL, "between", v, lb, ub);
         }
 
         @Override
@@ -365,7 +365,7 @@ public class Fd {
 
         @Override
         public Cons symbolicRepr(Var v) {
-            return Cons.th(Cons.fromIterable(subset), "set", v);
+            return Cons.make(Cons.fromIterable(subset), "set", v);
         }
 
         @Override
@@ -453,7 +453,7 @@ public class Fd {
         }
 
         @Override
-        public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+        public Series<Subst> apply(Subst subst) {
             // Fail immediately if the constraint is empty
             if (domain.isEmpty()) return Series.empty();
 
@@ -467,12 +467,12 @@ public class Fd {
             final Domain newConstraint;
             final Var v = (Var) o;
             final Option<Attribute> optOldDomain = getAttribute(v, subst, DOM_DOMAIN);
-            final Map<Integer, Object> subst1;
+            final Subst subst1;
             if (optOldDomain.isEmpty()) {
                 newConstraint = domain;
                 subst1 = subst;
             } else {
-                final Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> combination =
+                final Option<Tuple2<Option<Attribute>, Subst>> combination =
                         optOldDomain.get().combine(v, new DomainAttribute(v, domain), subst);
                 if (combination.isEmpty()) return Series.empty();
                 newConstraint = ((DomainAttribute) combination.get()._1.get()).domain;
@@ -521,7 +521,7 @@ public class Fd {
         }
 
         @Override
-        public Option<Map<Integer, Object>> validate(Var v, Object o, Map<Integer, Object> subst) {
+        public Option<Subst> validate(Var v, Object o, Subst subst) {
             return Option.of(subst);
         }
 
@@ -531,7 +531,7 @@ public class Fd {
         }
 
         @Override
-        public Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> combine(Var v, Attribute other, Map<Integer, Object> subst) {
+        public Option<Tuple2<Option<Attribute>, Subst>> combine(Var v, Attribute other, Subst subst) {
             final FdAttribute otherAri = (FdAttribute) other;
             return Option.of(Tuple.of(
                     Option.of(new FdAttribute(constraints.appendAll(otherAri.constraints.filter(c -> !constraints.contains(c))))),
@@ -592,7 +592,7 @@ public class Fd {
         /**
          * The original substitution under which this solver operates.
          */
-        final Map<Integer, Object> subst;
+        final Subst subst;
 
         // ---------- Variable Constraints ----------
         /**
@@ -676,7 +676,7 @@ public class Fd {
         Domain getDomain(int varIndex) {
             final Option<Domain> optCurrent = varDomains.get(varIndex);
             if (!optCurrent.isEmpty()) return optCurrent.get();
-            final Object value = subst.get(varIndex).get();
+            final Object value = subst.getSome(varIndex);
             final Domain result;
             if (value instanceof Var) {
                 final Option<Attribute> fromSubst = getAttribute(varIndex, subst, DOM_DOMAIN);
@@ -718,7 +718,7 @@ public class Fd {
 
         LinkedList<Tuple2<FdConstraint, Integer>> queue = new LinkedList<>();
 
-        Solver(Map<Integer, Object> subst) {
+        Solver(Subst subst) {
             this.subst = subst;
         }
 
@@ -772,7 +772,7 @@ public class Fd {
 
         // ---------- Interface ----------
 
-        static Option<Map<Integer, Object>> instantiate(Var v, int x, Map<Integer, Object> subst) {
+        static Option<Subst> instantiate(Var v, int x, Subst subst) {
             final Solver solver = new Solver(subst);
             final Var walked = walkVar(v, subst);
             if (!solver.reduceDomain(walked.index, Subset.of(x)))
@@ -780,7 +780,7 @@ public class Fd {
             return solver.solution();
         }
 
-        static Option<Map<Integer, Object>> addDomain(DomainAttribute da, Map<Integer, Object> subst) {
+        static Option<Subst> addDomain(DomainAttribute da, Subst subst) {
             final Solver solver = new Solver(subst);
             final Var walked = walkVar(da.variable, subst);
             if (!solver.reduceDomain(walked.index, da.domain))
@@ -788,14 +788,14 @@ public class Fd {
             return solver.solution();
         }
 
-        static Option<Map<Integer, Object>> subscribe(FdConstraint c, Map<Integer, Object> subst) {
+        static Option<Subst> subscribe(FdConstraint c, Subst subst) {
             final Solver solver = new Solver(subst);
             solver.subscribe(c);
             solver.enqueue(c, 0);
             return solver.solution();
         }
 
-        Logish.Series<Map<Integer, Object>> label(Set<Var> vars) {
+        Logish.Series<Subst> label(Set<Var> vars) {
             if (!getToFixpoint()) return Series.empty();
             final List<Tuple4<Var, Domain, Integer, Integer>> candidates =
                     vars.map(v -> walkVar(v, subst)).toList().map(v -> Tuple.of(v, getDomain(v.index)))
@@ -834,11 +834,11 @@ public class Fd {
             return true;
         }
 
-        Option<Map<Integer, Object>> solution() {
+        Option<Subst> solution() {
 
             if (!getToFixpoint()) return Option.none();
 
-            Map<Integer, Object> result = subst;
+            Subst result = subst;
 
             final Map<Integer, Integer> solved =
                     varDomains.filter(t -> hasSolution(t._2)).mapValues(d -> d.get().head());
@@ -869,7 +869,7 @@ public class Fd {
             // Instantiate solved variables by unifying them recursively
             for (final Tuple2<Integer, Integer> solution : solved) {
                 if (instantiatedVars.contains(solution._1)) continue; // variable instantiated earlier
-                final Option<Map<Integer, Object>> step = unify(new Var(solution._1), solution._2, result);
+                final Option<Subst> step = unify(new Var(solution._1), solution._2, result);
                 if (step.isEmpty()) return Option.none();
                 result = step.get();
             }
@@ -894,7 +894,7 @@ public class Fd {
 
         @Override
         public Cons symbolicRepr() {
-            return Cons.th(Cons.NIL, "v+n=v", x, y, z);
+            return Cons.make(Cons.NIL, "v+n=v", x, y, z);
         }
 
         @Override
@@ -1006,7 +1006,7 @@ public class Fd {
 
         @Override
         public Cons symbolicRepr() {
-            return Cons.th(Cons.NIL, "v+v=n", x, y, z);
+            return Cons.make(Cons.NIL, "v+v=n", x, y, z);
         }
 
         @Override
@@ -1121,7 +1121,7 @@ public class Fd {
 
         @Override
         public Cons symbolicRepr() {
-            return Cons.th(Cons.NIL, "v+v=v", x, y, z);
+            return Cons.make(Cons.NIL, "v+v=v", x, y, z);
         }
 
         @Override
@@ -1444,7 +1444,7 @@ public class Fd {
         }
 
         @Override
-        public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+        public Series<Subst> apply(Subst subst) {
             return Series.of(Solver.subscribe(constraint, subst));
         }
     }
@@ -1498,7 +1498,7 @@ public class Fd {
 
         @Override
         public Cons symbolicRepr() {
-            return Cons.th(Cons.fromIterable(xs), "allDifferent", Cons.fromIterable(ys));
+            return Cons.make(Cons.fromIterable(xs), "allDifferent", Cons.fromIterable(ys));
         }
 
         @Override
@@ -1864,7 +1864,7 @@ public class Fd {
 
         @Override
         public Cons symbolicRepr() {
-            return Cons.th(Cons.NIL, "n*v=v", x, y, z);
+            return Cons.make(Cons.NIL, "n*v=v", x, y, z);
         }
 
         @Override
@@ -2098,7 +2098,7 @@ public class Fd {
         }
 
         @Override
-        public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+        public Series<Subst> apply(Subst subst) {
             return new Solver(subst).label(vars.toSet());
         }
     }

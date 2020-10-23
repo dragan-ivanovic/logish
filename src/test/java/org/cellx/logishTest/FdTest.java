@@ -3,7 +3,7 @@ package org.cellx.logishTest;
 import io.vavr.Tuple2;
 import io.vavr.collection.List;
 import io.vavr.collection.Stream;
-import org.cellx.logish.Logish.Cons;
+import org.cellx.logish.Cons;
 import org.junit.Test;
 
 import java.util.function.Consumer;

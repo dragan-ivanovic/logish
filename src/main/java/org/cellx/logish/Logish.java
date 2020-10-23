@@ -6,195 +6,102 @@ import io.vavr.control.Option;
 
 import java.lang.Iterable;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 public class Logish {
 
-    @SuppressWarnings("unused")
-    public static final class Cons implements Iterable<Object> {
-        public static final Object NIL = "()";
-        final Object car;
-        Object cdr;
 
-        public Cons(Object car, Object cdr) {
-            this.car = car;
-            this.cdr = cdr;
+    public final static class Subst {
+        final IntMap<Object> map;
+
+        protected Subst(IntMap<Object> map) {
+            this.map = map;
         }
 
-        public Object car() {
-            return car;
+        public static Subst empty() {
+            return new Subst(IntMap.empty());
         }
 
-        public Object cdr() {
-            return cdr;
+        public Object getSome(int key) {
+            final Object value = map.getOrNull(key);
+            if (value == null) throw new NoSuchElementException();
+            return value;
         }
 
-        public Object cadr() {
-            return ((Cons) cdr).car;
+        public Option<Object> get(int key) {
+            return map.get(key);
         }
 
-        public Object caddr() {
-            return ((Cons) cdr).cadr();
+        public Subst put(int key, Object value) {
+            final IntMap<Object> newMap = map.with(key, value);
+            if (newMap == map) return this;
+            else return new Subst(newMap);
         }
 
-        public Object cadddr() {
-            return ((Cons) cdr).caddr();
+        public Subst remove(int key) {
+            final IntMap<Object> newMap = map.without(key);
+            if (newMap == map) return this;
+            else return new Subst(newMap);
         }
 
-        public Object caddddr() {
-            return ((Cons) cdr).cadddr();
-        }
-
-        void setCdr(Object value) {
-            this.cdr = value;
-        }
-
-        @Override
-        public String toString() {
-            final StringBuilder builder = new StringBuilder("(");
-            boolean first = true;
-            Object current = this;
-            while (current instanceof Cons) {
-                final Cons cons = (Cons) current;
-                if (!first) builder.append(" ");
-                builder.append(cons.car);
-                current = cons.cdr;
-                first = false;
-            }
-            if (!NIL.equals(current)) {
-                builder.append(" . ");
-                builder.append(current);
-            }
-            builder.append(")");
-            return builder.toString();
-        }
-
-        @Override
-        public boolean equals(Object right) {
-            Object left = this;
-            while (true) {
-                if (left == right) return true;
-                if (!(left instanceof Cons)) return Objects.equals(left, right);
-                if (!(right instanceof Cons)) return false;
-                final Cons leftCons = (Cons) left, rightCons = (Cons) right;
-                if (!Objects.equals(leftCons.car, rightCons.car)) return false;
-                left = leftCons.cdr;
-                right = rightCons.cdr;
-            }
-        }
-
-        @Override
-        public int hashCode() {
-            int result = 0;
-            Object current = this;
-            while (current instanceof Cons) {
-                final Cons cons = (Cons) current;
-                result ^= Objects.hashCode(cons.car);
-                current = cons.cdr;
-            }
-            return result ^ Objects.hashCode(current);
-        }
-
-        public Cons mapTail(Function<Object, ?> function) {
-            Cons result = null, last = null;
-            Object current = this;
-            while (current instanceof Cons) {
-                Cons cons = (Cons) current;
-                Cons image = new Cons(function.apply(cons.car), null);
-                if (last == null) {
-                    result = image;
-                } else {
-                    last.setCdr(image);
-                }
-                last = image;
-                current = cons.cdr;
-            }
-            last.setCdr(function.apply(current));
-            return result;
-        }
-
-        public static Object fromIterable(Iterable<?> iterable) {
-            final Iterator<?> iterator = iterable.iterator();
-            if (!iterator.hasNext()) return NIL;
-            final Cons result = new Cons(iterator.next(), null);
-            Cons last = result;
-            while (iterator.hasNext()) {
-                final Cons fresh = new Cons(iterator.next(), null);
-                last.setCdr(fresh);
-                last = fresh;
-            }
-            last.setCdr(NIL);
-            return result;
-        }
-
-        public static Object list(Object element, Object... elements) {
-            return th(NIL, element, elements);
-        }
-
-        public static Cons th(Object tail, Object element, Object... elements) {
-            final int len = elements.length;
-            final Cons result = new Cons(element, null);
-            Cons last = result;
-            for (Object o : elements) {
-                final Cons cons = new Cons(o, null);
-                last.setCdr(cons);
-                last = cons;
-            }
-            last.setCdr(tail);
-            return result;
-        }
-
-        static class PairIterator implements Iterator<Object> {
-            Object current;
-
-            PairIterator(Object current) {
-                this.current = current;
-            }
-
-            @Override
-            public boolean hasNext() {
-                return current instanceof Cons;
-            }
-
-            @Override
-            public Object next() {
-                final Object result = ((Cons) current).car;
-                current = ((Cons) current).cdr;
-                return result;
-            }
-        }
-
-        @Override
-        public Iterator<Object> iterator() {
-            return new PairIterator(this);
-        }
-
-        public static Iterator<Object> iteratorFor(Object target) {
-            if (target instanceof Cons) return ((Cons) target).iterator();
-            else return new PairIterator(NIL);
+        public int nextVarIndex() {
+            return map.isEmpty() ? 0 : map.maxKey() + 1;
         }
     }
 
+    /**
+     * Logic variable.
+     *
+     * <p>A logic variable is a placeholder for a value (an object).</p>
+     *
+     * <p>The meaning of a variable is always relative to a <b>substitution</b>, which is
+     * an (immutable) map variables to values.
+     * <p>
+     * Each distinct variable has a </b>that is initially unknown, but can become
+     * known in the course of execution of a query.</p>
+     *
+     * <p></p>
+     */
     public final static class Var implements Comparable<Var> {
+        /**
+         * Unique, non-negative index of this variable in a substitution.
+         */
         final int index;
 
         Var(int index) {
             this.index = index;
         }
 
+        /**
+         * Returns the index of this variable.
+         *
+         * @return the unique variable index
+         */
+        @SuppressWarnings("unused")
         public int index() {
             return index;
         }
 
+        /**
+         * Compares this variable to another object.
+         *
+         * <p>To succeed, the other object needs to be a Variable, and to have the same index.</p>
+         *
+         * @param o the other object
+         * @return Result of the comparison: {@code true} if successful, {@code false} otherwise.
+         */
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof Var)) return false;
-            Var var = (Var) o;
-            return index == var.index;
+            return index == ((Var) o).index;
         }
 
         @Override
@@ -207,12 +114,19 @@ public class Logish {
             return "_" + index;
         }
 
-        public boolean occursIn(Object term, Map<Integer, Object> subst) {
+        /**
+         * Checks if this variable occurs in the given term under the given substitution.
+         *
+         * <p>For the check to make sense, the variable needs to be free in the substitution.</p>
+         *
+         * @param term  the term, the context of which is checked
+         * @param subst the substitution
+         * @return {@code true} iff occurs.
+         */
+        public boolean occursIn(Object term, Subst subst) {
             final Object walked = walk(term, subst);
             if (equals(walked)) return true;
-            else if (walked instanceof Tuple2) {
-                return exists(walked, e -> occursIn(e, subst));
-            } else return false;
+            else return exists(walked, e -> occursIn(e, subst));
         }
 
         @Override
@@ -233,47 +147,65 @@ public class Logish {
     }
 
     public static boolean exists(Object list, Predicate<Object> predicate) {
-        while (list instanceof Tuple2) {
-            final Tuple2<?, ?> tuple2 = (Tuple2<?, ?>) list;
-            if (predicate.test(tuple2._1)) return true;
-            list = tuple2._2;
+        boolean first = true;
+        if (list instanceof Cons) {
+            do {
+                final Cons cons = (Cons) list;
+                if (predicate.test(cons.car)) return true;
+                list = cons.cdr;
+                first = false;
+            } while (list instanceof Cons);
         }
-        return false;
+        return !first && predicate.test(list);
     }
 
-    public static Object walk(Object term, Map<Integer, Object> subst) {
+//    public static boolean isMoreInstantiated(Object o1, Object o2, Subst subst) {
+//        final Object v1 = walk(o1, subst);
+//        final Object v2 = walk(o2, subst);
+//        if (v1 == null) return v2 == null;
+//        if (v1 == v2 || v1.equals(v2)) return true;
+//        if (v2 instanceof Var) return true;
+//        if (v1 instanceof Var) return false;
+//        if (v1 instanceof Cons) {
+//            if (v2 instanceof Cons) {
+//
+//            }
+//        }
+//    }
+
+    public static Object walk(Object term, Subst subst) {
         while (term instanceof Var) {
-            final Object o = subst.get(((Var) term).index).get();
+            final Object o = subst.getSome(((Var) term).index);
             if (o == term) break;
             term = o;
         }
         return term;
     }
 
-    public static Var walkVar(Var v, Map<Integer, Object> subst) {
+    public static Var walkVar(Var v, Subst subst) {
         int prevSeq = v.index;
-        Object t = subst.get(prevSeq).get();
+        Object t = subst.getSome(prevSeq);
         while (t instanceof Var) {
             v = (Var) t;
             if (v.index == prevSeq) break;
             prevSeq = v.index;
-            t = subst.get(prevSeq).get();
+            t = subst.getSome(prevSeq);
         }
         return v;
     }
 
-    public static int walkVarIndex(int varIndex, Map<Integer, Object> subst) {
-        Object t = subst.get(varIndex).get();
+    public static int walkVarIndex(int varIndex, Subst subst) {
+        Object t = subst.getSome(varIndex);
         while (t instanceof Var) {
             final int nextVarIndex = ((Var) t).index;
             if (nextVarIndex == varIndex) break;
             varIndex = nextVarIndex;
-            t = subst.get(varIndex).get();
+            t = subst.getSome(varIndex);
         }
         return varIndex;
     }
 
-    public static Object walkDeep(Object term0, Map<Integer, Object> subst) {
+    public static Object walkDeep(Object term0, Subst subst) {
         final Object term = walk(term0, subst);
         if (term instanceof Cons) {
             return ((Cons) term).mapTail(e -> walkDeep(e, subst));
@@ -281,6 +213,8 @@ public class Logish {
     }
 
     public static abstract class Series<T> implements Iterable<T> {
+        public abstract boolean hasFuture();
+
         public abstract boolean isSuspension();
 
         public abstract boolean isEmpty();
@@ -289,11 +223,13 @@ public class Logish {
 
         public abstract Series<T> tail();
 
+        public abstract CompletableFuture<Series<T>> future();
+
         public abstract Series<T> force();
 
         public final Series<T> forceDeep() {
             Series<T> series = this;
-            while (series.isSuspension()) series = series.force();
+            while (series.isSuspension() || series.hasFuture()) series = series.force();
             return series;
         }
 
@@ -345,8 +281,20 @@ public class Logish {
             return new SuspendedSeries<>(supplier);
         }
 
+        public static <T> Series<T> future(CompletableFuture<Series<T>> futureSeries) {
+            return new FutureSeries<>(futureSeries);
+        }
+
         public static <E> Series<E> appendInf(Series<E> s1, Series<E> s2) {
-            if (s1.isSuspension()) {
+            if (s1.hasFuture()) {
+                if (s2.hasFuture()) {
+                    return future(s1.future().thenCombineAsync(s2.future(), Series::appendInf));
+                } else {
+                    return future(s1.future().thenApplyAsync(f1s -> appendInf(f1s, s2)));
+                }
+            } else if (s2.hasFuture()) {
+                return future(s2.future().thenApplyAsync(fs2 -> appendInf(s1, fs2)));
+            } else if (s1.isSuspension()) {
                 return suspension(() -> appendInf(s2, s1.force()));
             } else if (s1.isEmpty()) {
                 return s2;
@@ -357,12 +305,29 @@ public class Logish {
         }
 
         public static <E> Series<E> appendMapInf(Function<E, Series<E>> goal, Series<E> series) {
-            if (series.isSuspension()) {
+            if (series.hasFuture()) {
+                return future(series.future().thenApplyAsync(s -> appendMapInf(goal, s)));
+            } else if (series.isSuspension()) {
                 return suspension(() -> appendMapInf(goal, series.force()));
             } else if (series.isEmpty()) {
                 return series;
             } else {
                 return appendInf(goal.apply(series.head()), appendMapInf(goal, series.tail()));
+            }
+        }
+
+        public static <E, T> Series<T> mapFilter(Function<E, T> function, Series<E> series) {
+            final Series<E> forced = series.forceDeep();
+
+            if (forced.isEmpty()) {
+                return Series.empty();
+            } else {
+                final T result = function.apply(forced.head());
+                if (result == null) {
+                    return mapFilter(function, forced.tail());
+                } else {
+                    return ConsSeries.cons(result, suspension(() -> mapFilter(function, forced.tail())));
+                }
             }
         }
     }
@@ -379,12 +344,22 @@ public class Logish {
         }
 
         @Override
+        public boolean hasFuture() {
+            return false;
+        }
+
+        @Override
         public T head() {
             throw new UnsupportedOperationException();
         }
 
         @Override
         public Series<T> tail() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletableFuture<Series<T>> future() {
             throw new UnsupportedOperationException();
         }
 
@@ -416,8 +391,18 @@ public class Logish {
         }
 
         @Override
+        public boolean hasFuture() {
+            return false;
+        }
+
+        @Override
         public T head() {
             return head;
+        }
+
+        @Override
+        public CompletableFuture<Series<T>> future() {
+            throw new UnsupportedOperationException();
         }
 
         @Override
@@ -449,6 +434,11 @@ public class Logish {
         }
 
         @Override
+        public boolean hasFuture() {
+            return false;
+        }
+
+        @Override
         public T head() {
             throw new IllegalStateException();
         }
@@ -459,8 +449,60 @@ public class Logish {
         }
 
         @Override
+        public CompletableFuture<Series<T>> future() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public Series<T> force() {
             return suspension.get();
+        }
+    }
+
+    static class FutureSeries<T> extends Series<T> {
+        final CompletableFuture<Series<T>> future;
+
+        public FutureSeries(CompletableFuture<Series<T>> future) {
+            this.future = future;
+        }
+
+        @Override
+        public boolean isSuspension() {
+            return false;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return false;
+        }
+
+        @Override
+        public boolean hasFuture() {
+            return true;
+        }
+
+        @Override
+        public T head() {
+            throw new IllegalStateException();
+        }
+
+        @Override
+        public Series<T> tail() {
+            throw new IllegalStateException();
+        }
+
+        @Override
+        public CompletableFuture<Series<T>> future() {
+            return future;
+        }
+
+        @Override
+        public Series<T> force() {
+            try {
+                return future.get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
@@ -469,26 +511,26 @@ public class Logish {
     }
 
     public interface Attribute {
-        Option<Map<Integer, Object>> validate(Var v, Object o, Map<Integer, Object> subst);
+        Option<Subst> validate(Var v, Object o, Subst subst);
 
         boolean delegating();
 
         List<Constraint> constraints();
 
-        Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> combine(Var v, Attribute other, Map<Integer, Object> subst);
+        Option<Tuple2<Option<Attribute>, Subst>> combine(Var v, Attribute other, Subst subst);
     }
 
     @SuppressWarnings("unused")
-    static Option<Map<Integer, Object>> wrapGoal(Goal goal, Map<Integer, Object> subst) {
-        final Series<Map<Integer, Object>> result = goal.apply(subst).forceDeep();
+    static Option<Subst> wrapGoal(Goal goal, Subst subst) {
+        final Series<Subst> result = goal.apply(subst).forceDeep();
         return result.isEmpty() ? Option.none() : Option.of(result.head());
     }
 
-    public static Option<Attribute> getAttribute(Var v, Map<Integer, Object> subst, String domain) {
+    public static Option<Attribute> getAttribute(Var v, Subst subst, String domain) {
         return getAttribute(v.index, subst, domain);
     }
 
-    public static Option<Attribute> getAttribute(int varSeq, Map<Integer, Object> subst, String domain) {
+    public static Option<Attribute> getAttribute(int varSeq, Subst subst, String domain) {
         final Option<Object> untypedMap = subst.get(-varSeq - 1);
         if (untypedMap.isEmpty()) {
             return Option.none();
@@ -498,13 +540,13 @@ public class Logish {
         }
     }
 
-    public static Map<Integer, Object> setAttribute(Var v, Map<Integer, Object> subst,
-                                                    String domain, Attribute attribute) {
+    public static Subst setAttribute(Var v, Subst subst,
+                                     String domain, Attribute attribute) {
         return setAttribute(v.index, subst, domain, attribute);
     }
 
-    public static Map<Integer, Object> setAttribute(int varSeq, Map<Integer, Object> subst,
-                                                    String domain, Attribute attribute) {
+    public static Subst setAttribute(int varSeq, Subst subst,
+                                     String domain, Attribute attribute) {
         final Option<Object> untypedMap = subst.get(-varSeq - 1);
         if (untypedMap.isEmpty()) {
             return subst.put(-varSeq - 1, HashMap.of(domain, attribute));
@@ -514,13 +556,13 @@ public class Logish {
         }
     }
 
-    public static Map<Integer, Object> removeAttribute(Var v, Map<Integer, Object> subst,
-                                                       String domain) {
+    public static Subst removeAttribute(Var v, Subst subst,
+                                        String domain) {
         return removeAttribute(v.index, subst, domain);
     }
 
-    public static Map<Integer, Object> removeAttribute(int varSeq, Map<Integer, Object> subst,
-                                                       String domain) {
+    public static Subst removeAttribute(int varSeq, Subst subst,
+                                        String domain) {
         final Option<Object> untypedMap = subst.get(-varSeq - 1);
         if (untypedMap.isEmpty()) {
             return subst;
@@ -535,8 +577,8 @@ public class Logish {
         }
     }
 
-    static Option<Map<Integer, Object>> bind(Var v1, Var v2, Map<Integer, Object> subst) {
-        Map<Integer, Object> bound = subst.put(v1.index, v2);
+    static Option<Subst> bind(Var v1, Var v2, Subst subst) {
+        Subst bound = subst.put(v1.index, v2);
         final Option<Object> optMap1 = subst.get(-v1.index - 1),
                 optMap2 = subst.get(-v2.index - 1);
         if (!optMap1.isEmpty()) {
@@ -559,10 +601,10 @@ public class Logish {
                         map2 = map2.put(domain, e1._2);
                     } else {
                         // validate compatibility
-                        final Option<Tuple2<Option<Attribute>, Map<Integer, Object>>> optCompat =
+                        final Option<Tuple2<Option<Attribute>, Subst>> optCompat =
                                 a2.get().combine(v2, e1._2, bound);
                         if (optCompat.isEmpty()) return Option.none();
-                        final Tuple2<Option<Attribute>, Map<Integer, Object>> compat = optCompat.get();
+                        final Tuple2<Option<Attribute>, Subst> compat = optCompat.get();
                         if (compat._1.isEmpty()) {
                             map2 = map2.remove(domain);
                         } else {
@@ -577,7 +619,7 @@ public class Logish {
         return Option.of(bound);
     }
 
-    static Option<Map<Integer, Object>> instantiate(Var v, Object o, Map<Integer, Object> subst) {
+    static Option<Subst> instantiate(Var v, Object o, Subst subst) {
         final Option<Object> optMap = subst.get(-v.index - 1);
         if (optMap.isEmpty()) {
             return Option.of(subst.put(v.index, o));
@@ -588,9 +630,9 @@ public class Logish {
             if (!optDelegating.isEmpty()) {
                 return optDelegating.get().validate(v, o, subst);
             } else {
-                Map<Integer, Object> inst = subst.put(v.index, o);
+                Subst inst = subst.put(v.index, o);
                 for (final Attribute a : map.valuesIterator()) {
-                    final Option<Map<Integer, Object>> result = a.validate(v, o, inst);
+                    final Option<Subst> result = a.validate(v, o, inst);
                     if (result.isEmpty()) return result;
                     inst = result.get();
                 }
@@ -599,7 +641,7 @@ public class Logish {
         }
     }
 
-    static Option<Map<Integer, Object>> unify(Object left, Object right, Map<Integer, Object> subst) {
+    static Option<Subst> unify(Object left, Object right, Subst subst) {
         left = walk(left, subst);
         right = walk(right, subst);
         if (left == right) return Option.of(subst);
@@ -632,7 +674,7 @@ public class Logish {
                 return instantiate(rightVar, left, subst);
             }
         } else if (left instanceof Cons) {
-            Map<Integer, Object> current = subst;
+            Subst current = subst;
             while (left instanceof Cons) {
                 final Cons leftCons = (Cons) left;
                 if (!(right instanceof Cons)) {
@@ -640,7 +682,7 @@ public class Logish {
                     return Option.none();
                 }
                 final Cons rightCons = (Cons) right;
-                final Option<Map<Integer, Object>> headResult = unify(leftCons.car, rightCons.car, current);
+                final Option<Subst> headResult = unify(leftCons.car, rightCons.car, current);
                 if (headResult.isEmpty()) return Option.none();
                 current = headResult.get();
                 left = walk(leftCons.cdr, current);
@@ -655,12 +697,12 @@ public class Logish {
 
     public static Stream<Object> run(Function<Var, Goal> body) {
         final Var q = new Var(0);
-        final Map<Integer, Object> subst0 = TreeMap.of(0, q);
+        final Subst subst0 = Subst.empty().put(q.index, q);
         return Stream.ofAll(body.apply(q).apply(subst0)).map(subst -> walkDeep(q, subst));
     }
 
     static Tuple2<Map<String, List<Constraint>>, SortedSet<Integer>> augmentConstraints(int varSeq,
-                                                                                        Map<Integer, Object> subst,
+                                                                                        Subst subst,
                                                                                         Map<String, List<Constraint>> start) {
         Option<Object> optAttributes = subst.get(-varSeq - 1);
         if (optAttributes.isEmpty()) return Tuple.of(start, TreeSet.empty());
@@ -684,19 +726,7 @@ public class Logish {
         return Tuple.of(constraints, otherVars);
     }
 
-    //    static <K, T> Map<K, List<T>> mapUnion(Map<K, List<T>> first, Map<K, List<T>> second) {
-//        Map<K, List<T>> result = first;
-//        for (final Tuple2<K, List<T>> e1 : first) {
-//            final Option<List<T>> optL2 = second.get(e1._1);
-//            if (!optL2.isEmpty()) result = result.put(e1._1, e1._2.appendAll(optL2.get()));
-//        }
-//        for (final Tuple2<K, List<T>> e2 : second) {
-//            if (!first.containsKey(e2._1)) result = result.put(e2._1, e2._2);
-//        }
-//        return result;
-//    }
-//
-    static Map<String, List<Constraint>> collectConstraints(Object o, Map<Integer, Object> subst) {
+    static Map<String, List<Constraint>> collectConstraints(Object o, Subst subst) {
         Map<String, List<Constraint>> result = TreeMap.empty();
         SortedSet<Integer> varsToGo = varIndices(o);
         SortedSet<Integer> seenVars = TreeSet.empty();
@@ -716,17 +746,17 @@ public class Logish {
 
     public static Stream<Tuple2<Object, List<Cons>>> runC(Function<Var, Goal> body) {
         final Var q = new Var(0);
-        final Map<Integer, Object> subst0 = TreeMap.of(0, q);
+        final Subst subst0 = Subst.empty().put(0, q);
         return Stream.ofAll(body.apply(q).apply(subst0)).map(subst -> {
             Object o = walkDeep(q, subst);
             return Tuple.of(o, collectConstraints(o, subst).toList()
-                    .map(e -> e._2.map(c -> Cons.th(walkDeep(c.symbolicRepr(), subst), e._1)))
+                    .map(e -> e._2.map(c -> Cons.make(walkDeep(c.symbolicRepr(), subst), e._1)))
                     .flatMap(Function.identity()));
         });
     }
 
     @SuppressWarnings({"unused", "SuspiciousNameCombination"})
-    public static abstract class Goal implements Function<Map<Integer, Object>, Series<Map<Integer, Object>>> {
+    public static abstract class Goal implements Function<Subst, Series<Subst>> {
 
         static class Delayed extends Goal {
             final Supplier<Goal> supplier;
@@ -736,14 +766,14 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 return supplier.get().apply(subst);
             }
         }
 
         static class Failure extends Goal {
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 return Series.empty();
             }
 
@@ -752,7 +782,7 @@ public class Logish {
 
         static class Success extends Goal {
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 return Series.cons(subst, Series.empty());
             }
 
@@ -776,7 +806,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 return Series.appendMapInf(second, first.apply(subst));
             }
         }
@@ -790,8 +820,27 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 return Series.appendInf(first.apply(subst), second.apply(subst));
+            }
+        }
+
+        static class ParDisj extends Goal {
+            final Executor executor;
+            final Goal first, second;
+
+            public ParDisj(Executor executor, Goal first, Goal second) {
+                this.executor = executor;
+                this.first = first;
+                this.second = second;
+            }
+
+            @Override
+            public Series<Subst> apply(Subst subst) {
+                final CompletableFuture<Series<Subst>> secondFuture =
+                        (executor == null ? CompletableFuture.supplyAsync(() -> second.apply(subst))
+                                : CompletableFuture.supplyAsync(() -> second.apply(subst), executor));
+                return Series.appendInf(first.apply(subst), Series.future(secondFuture));
             }
         }
 
@@ -824,6 +873,22 @@ public class Logish {
             }
         }
 
+        public static Goal par(Executor executor, Goal... goals) {
+            final int len = goals.length;
+            if (len == 0) return Failure.INSTANCE;
+            else {
+                Goal current = goals[len - 1];
+                for (int i = len - 2; i >= 0; i--) {
+                    current = new ParDisj(executor, goals[i], current);
+                }
+                return current;
+            }
+        }
+
+        public static Goal par(Goal... goals) {
+            return par(null, goals);
+        }
+
 
         static class Unify extends Goal {
             final Object left, right;
@@ -834,8 +899,8 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Option<Map<Integer, Object>> result = Logish.unify(left, right, subst);
+            public Series<Subst> apply(Subst subst) {
+                final Option<Subst> result = Logish.unify(left, right, subst);
                 if (result.isEmpty()) {
                     return Series.empty();
                 } else {
@@ -857,7 +922,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 return Objects.equals(walk(left, subst), walk(right, subst)) ? Series.singleton(subst) : Series.empty();
             }
         }
@@ -875,7 +940,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 return walk(left, subst) == walk(right, subst) ? Series.singleton(subst) : Series.empty();
             }
         }
@@ -893,8 +958,8 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Series<Map<Integer, Object>> result = goal.apply(subst).forceDeep();
+            public Series<Subst> apply(Subst subst) {
+                final Series<Subst> result = goal.apply(subst).forceDeep();
                 return result.isEmpty() ? Series.singleton(subst) : Series.empty();
             }
         }
@@ -911,8 +976,8 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final int nextVar = subst.max().map(Tuple2::_1).getOrElse(0) + 1;
+            public Series<Subst> apply(Subst subst) {
+                final int nextVar = subst.nextVarIndex();
                 final Var v1 = new Var(nextVar);
                 return body.apply(v1).apply(subst.put(nextVar, v1));
             }
@@ -926,8 +991,8 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final int nextVar = subst.max().map(Tuple2::_1).getOrElse(0) + 1;
+            public Series<Subst> apply(Subst subst) {
+                final int nextVar = subst.nextVarIndex();
                 final Var v1 = new Var(nextVar);
                 final Var v2 = new Var(nextVar + 1);
                 return body.apply(v1, v2).apply(subst.put(nextVar, v1).put(nextVar + 1, v2));
@@ -942,8 +1007,8 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final int nextVar = subst.max().map(Tuple2::_1).getOrElse(0) + 1;
+            public Series<Subst> apply(Subst subst) {
+                final int nextVar = subst.nextVarIndex();
                 final Var v1 = new Var(nextVar);
                 final Var v2 = new Var(nextVar + 1);
                 final Var v3 = new Var(nextVar + 2);
@@ -991,13 +1056,13 @@ public class Logish {
         public static Goal appendO(Object x, Object y, Object z) {
             return delayed(() -> choice(
                     seq(unify(x, Cons.NIL), unify(y, z)),
-                    fresh((h, a, c) -> seq(unify(x, Cons.th(a, h)), unify(z, Cons.th(c, h)), appendO(a, y, c)))
+                    fresh((h, a, c) -> seq(unify(x, Cons.make(a, h)), unify(z, Cons.make(c, h)), appendO(a, y, c)))
             ));
         }
 
         public static Goal memberO(Object x, Object y) {
             return fresh((t, h) -> seq(
-                    unify(y, Cons.th(t, h)),
+                    unify(y, Cons.make(t, h)),
                     choice(
                             unify(x, h),
                             memberO(x, t)
@@ -1007,7 +1072,7 @@ public class Logish {
 
         public static Goal memberCheckO(Object x, Object y) {
             return fresh((t, h) -> seq(
-                    unify(y, Cons.th(t, h)),
+                    unify(y, Cons.make(t, h)),
                     ifte(unify(x, h), Goal::success, () -> memberCheckO(x, t))
             ));
         }
@@ -1024,8 +1089,8 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Series<Map<Integer, Object>> questionResult = question.apply(subst).forceDeep();
+            public Series<Subst> apply(Subst subst) {
+                final Series<Subst> questionResult = question.apply(subst).forceDeep();
                 if (questionResult.isEmpty()) {
                     return elseBranch.get().apply(subst);
                 } else {
@@ -1046,8 +1111,8 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Series<Map<Integer, Object>> result = goal.apply(subst).forceDeep();
+            public Series<Subst> apply(Subst subst) {
+                final Series<Subst> result = goal.apply(subst).forceDeep();
                 if (result.isEmpty()) return result;
                 else return Series.singleton(result.head());
             }
@@ -1111,7 +1176,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 return walk(x, subst) instanceof Var ? Series.singleton(subst) : Series.empty();
             }
         }
@@ -1128,7 +1193,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 return test.apply() ? Series.singleton(subst) : Series.empty();
             }
         }
@@ -1145,7 +1210,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 final Object deref = walk(x, subst);
                 return clazz.isInstance(deref) && test.apply(clazz.cast(deref)) ? Series.singleton(subst) : Series.empty();
             }
@@ -1167,7 +1232,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 final Object derefX = walk(x, subst);
                 final Object derefY = walk(y, subst);
                 return clazzX.isInstance(derefX) && clazzY.isInstance(derefY) &&
@@ -1196,7 +1261,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 final Object derefX = walk(x, subst);
                 final Object derefY = walk(y, subst);
                 final Object derefZ = walk(z, subst);
@@ -1249,7 +1314,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 action.apply();
                 return Series.singleton(subst);
             }
@@ -1267,7 +1332,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 final Object deref = walk(x, subst);
                 action.apply(clazz.cast(deref));
                 return Series.singleton(subst);
@@ -1290,7 +1355,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 final Object derefX = walk(x, subst);
                 final Object derefY = walk(y, subst);
                 action.apply(clazzX.cast(derefX), clazzY.cast(derefY));
@@ -1319,7 +1384,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 final Object derefX = walk(x, subst);
                 final Object derefY = walk(y, subst);
                 final Object derefZ = walk(z, subst);
@@ -1369,8 +1434,8 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
-                final Option<Map<Integer, Object>> result = Logish.unify(w, f.apply(), subst);
+            public Series<Subst> apply(Subst subst) {
+                final Option<Subst> result = Logish.unify(w, f.apply(), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
         }
@@ -1389,10 +1454,10 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 final Object deref = walk(x, subst);
                 if (!clazz.isInstance(deref)) return Series.empty();
-                final Option<Map<Integer, Object>> result = Logish.unify(w, f.apply(clazz.cast(deref)), subst);
+                final Option<Subst> result = Logish.unify(w, f.apply(clazz.cast(deref)), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
         }
@@ -1415,11 +1480,11 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 final Object derefX = walk(x, subst);
                 final Object derefY = walk(y, subst);
                 if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY)) return Series.empty();
-                final Option<Map<Integer, Object>> result =
+                final Option<Subst> result =
                         Logish.unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY)), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
@@ -1448,13 +1513,13 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 final Object derefX = walk(x, subst);
                 final Object derefY = walk(y, subst);
                 final Object derefZ = walk(z, subst);
                 if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY) ||
                         !clazzZ.isInstance(derefZ)) return Series.empty();
-                final Option<Map<Integer, Object>> result =
+                final Option<Subst> result =
                         Logish.unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ)), subst);
                 return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
             }
@@ -1489,7 +1554,7 @@ public class Logish {
             }
 
             @Override
-            public Series<Map<Integer, Object>> apply(Map<Integer, Object> subst) {
+            public Series<Subst> apply(Subst subst) {
                 if (sequence.isEmpty()) return Series.empty();
                 return choice(unify(x, sequence.head()),
                         delayed(() -> new Element(x, sequence.tail()))).apply(subst);
