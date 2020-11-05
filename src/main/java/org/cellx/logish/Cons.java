@@ -261,9 +261,9 @@ public final class Cons implements Iterable<Object> {
 
         public ListBuilder appendList(Object original) {
             while (original instanceof Cons) {
-                final Cons cons = (Cons) original;
-                append(cons.car);
-                original = cons.cdr;
+                final Cons consCell = (Cons) original;
+                append(consCell.car);
+                original = consCell.cdr;
             }
             setTail(original);
             return this;
@@ -292,9 +292,9 @@ public final class Cons implements Iterable<Object> {
             list = NIL;
             last = null;
             while (source instanceof Cons) {
-                final Cons cons = (Cons) source;
-                append(cons.car);
-                source = cons.cdr;
+                final Cons consCell = (Cons) source;
+                append(consCell.car);
+                source = consCell.cdr;
             }
             setTail(savedList);
             if (savedLast != null) last = savedLast;
@@ -353,10 +353,10 @@ public final class Cons implements Iterable<Object> {
         boolean first = true;
         Object current = this;
         while (current instanceof Cons) {
-            final Cons cons = (Cons) current;
+            final Cons consCell = (Cons) current;
             if (!first) builder.append(" ");
-            builder.append(cons.car);
-            current = cons.cdr;
+            builder.append(consCell.car);
+            current = consCell.cdr;
             first = false;
         }
         if (!NIL.equals(current)) {
@@ -374,10 +374,10 @@ public final class Cons implements Iterable<Object> {
             if (left == right) return true;
             if (!(left instanceof Cons)) return Objects.equals(left, right);
             if (!(right instanceof Cons)) return false;
-            final Cons leftCons = (Cons) left, rightCons = (Cons) right;
-            if (!Objects.equals(leftCons.car, rightCons.car)) return false;
-            left = leftCons.cdr;
-            right = rightCons.cdr;
+            final Cons leftConsCell = (Cons) left, rightConsCell = (Cons) right;
+            if (!Objects.equals(leftConsCell.car, rightConsCell.car)) return false;
+            left = leftConsCell.cdr;
+            right = rightConsCell.cdr;
         }
     }
 
@@ -386,9 +386,9 @@ public final class Cons implements Iterable<Object> {
         int result = 0;
         Object current = this;
         while (current instanceof Cons) {
-            final Cons cons = (Cons) current;
-            result ^= Objects.hashCode(cons.car);
-            current = cons.cdr;
+            final Cons consCell = (Cons) current;
+            result ^= Objects.hashCode(consCell.car);
+            current = consCell.cdr;
         }
         return result ^ Objects.hashCode(current);
     }
@@ -403,9 +403,9 @@ public final class Cons implements Iterable<Object> {
         final Object firstResult = function.apply(car);
         Object current = cdr;
         while (current instanceof Cons) {
-            final Cons cons = (Cons) current;
-            builder.append(function.apply(cons.car));
-            current = cons.cdr;
+            final Cons consCell = (Cons) current;
+            builder.append(function.apply(consCell.car));
+            current = consCell.cdr;
         }
         return new Cons(firstResult, builder.build());
     }
@@ -420,9 +420,9 @@ public final class Cons implements Iterable<Object> {
         final ListBuilder builder = builder();
         Object current = cdr;
         while (current instanceof Cons) {
-            Cons cons = (Cons) current;
-            builder.append(function.apply(cons.car));
-            current = cons.cdr;
+            Cons consCell = (Cons) current;
+            builder.append(function.apply(consCell.car));
+            current = consCell.cdr;
         }
         builder.setTail(function.apply(current));
         return new Cons(firstResult, builder.build());

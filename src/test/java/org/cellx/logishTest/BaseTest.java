@@ -4,6 +4,7 @@ import io.vavr.collection.List;
 import io.vavr.collection.Stream;
 import org.cellx.logish.Logish;
 import org.cellx.logish.Cons;
+import org.cellx.logish.Var;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -44,11 +45,11 @@ public class BaseTest {
                     Assert.assertTrue(sols.forAll(e -> e instanceof Cons));
                     final List<List<Object>> casted = sols.map(e -> List.ofAll((Cons) e));
                     for (List<List<Object>> group : List.of(casted.filter(e -> e.head().equals(3)),
-                            casted.filter(e -> e.head().equals(4)), casted.filter(e -> e.head() instanceof Logish.Var))) {
+                            casted.filter(e -> e.head().equals(4)), casted.filter(e -> e.head() instanceof Var))) {
                         assertEquals(3, group.length());
                         Assert.assertTrue(group.exists(e -> e.tail().head().equals("a")));
                         Assert.assertTrue(group.exists(e -> e.tail().head().equals("b")));
-                        Assert.assertTrue(group.exists(e -> e.tail().head() instanceof Logish.Var));
+                        Assert.assertTrue(group.exists(e -> e.tail().head() instanceof Var));
                     }
                 }
         );
@@ -73,7 +74,7 @@ public class BaseTest {
                 sols -> {
                     // 1 solution: _
                     assertEquals(1, sols.length());
-                    assertTrue(sols.head() instanceof Logish.Var);
+                    assertTrue(sols.head() instanceof Var);
                 }
         );
     }
@@ -288,8 +289,8 @@ public class BaseTest {
                 sols -> {
                     // 3 solutions: _, _, and 1
                     assertEquals(3, sols.length());
-                    assertEquals(2, sols.filter(e -> e instanceof Logish.Var).length());
-                    assertEquals(List.of(1), sols.filter(e -> !(e instanceof Logish.Var)));
+                    assertEquals(2, sols.filter(e -> e instanceof Var).length());
+                    assertEquals(List.of(1), sols.filter(e -> !(e instanceof Var)));
                 }
         );
     }

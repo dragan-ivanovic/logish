@@ -35,8 +35,12 @@ public class Logish {
             return value;
         }
 
-        public Option<Object> get(int key) {
+        public Option<Object> getOption(int key) {
             return map.get(key);
+        }
+
+        public Object lookup(int key) {
+            return map.getOrNull(key);
         }
 
         public Subst put(int key, Object value) {
@@ -56,85 +60,6 @@ public class Logish {
         }
     }
 
-    /**
-     * Logic variable.
-     *
-     * <p>A logic variable is a placeholder for a value (an object).</p>
-     *
-     * <p>The meaning of a variable is always relative to a <b>substitution</b>, which is
-     * an (immutable) map variables to values.
-     * <p>
-     * Each distinct variable has a </b>that is initially unknown, but can become
-     * known in the course of execution of a query.</p>
-     *
-     * <p></p>
-     */
-    public final static class Var implements Comparable<Var> {
-        /**
-         * Unique, non-negative index of this variable in a substitution.
-         */
-        final int index;
-
-        Var(int index) {
-            this.index = index;
-        }
-
-        /**
-         * Returns the index of this variable.
-         *
-         * @return the unique variable index
-         */
-        @SuppressWarnings("unused")
-        public int index() {
-            return index;
-        }
-
-        /**
-         * Compares this variable to another object.
-         *
-         * <p>To succeed, the other object needs to be a Variable, and to have the same index.</p>
-         *
-         * @param o the other object
-         * @return Result of the comparison: {@code true} if successful, {@code false} otherwise.
-         */
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof Var)) return false;
-            return index == ((Var) o).index;
-        }
-
-        @Override
-        public int hashCode() {
-            return index;
-        }
-
-        @Override
-        public String toString() {
-            return "_" + index;
-        }
-
-        /**
-         * Checks if this variable occurs in the given term under the given substitution.
-         *
-         * <p>For the check to make sense, the variable needs to be free in the substitution.</p>
-         *
-         * @param term  the term, the context of which is checked
-         * @param subst the substitution
-         * @return {@code true} iff occurs.
-         */
-        public boolean occursIn(Object term, Subst subst) {
-            final Object walked = walk(term, subst);
-            if (equals(walked)) return true;
-            else return exists(walked, e -> occursIn(e, subst));
-        }
-
-        @Override
-        public int compareTo(Var o) {
-            return this.index - o.index;
-        }
-    }
-
     public static SortedSet<Integer> varIndices(Object o) {
         if (o instanceof Var) return TreeSet.of(((Var) o).index);
         if (!(o instanceof Cons)) return TreeSet.empty();
@@ -150,9 +75,9 @@ public class Logish {
         boolean first = true;
         if (list instanceof Cons) {
             do {
-                final Cons cons = (Cons) list;
-                if (predicate.test(cons.car)) return true;
-                list = cons.cdr;
+                final Cons consCell = (Cons) list;
+                if (predicate.test(consCell.car)) return true;
+                list = consCell.cdr;
                 first = false;
             } while (list instanceof Cons);
         }
@@ -531,12 +456,12 @@ public class Logish {
     }
 
     public static Option<Attribute> getAttribute(int varSeq, Subst subst, String domain) {
-        final Option<Object> untypedMap = subst.get(-varSeq - 1);
-        if (untypedMap.isEmpty()) {
+        final Object untypedMap = subst.lookup(-varSeq - 1);
+        if (untypedMap == null) {
             return Option.none();
         } else {
             //noinspection unchecked
-            return ((Map<String, Attribute>) untypedMap.get()).get(domain);
+            return ((Map<String, Attribute>) untypedMap).get(domain);
         }
     }
 
@@ -547,12 +472,12 @@ public class Logish {
 
     public static Subst setAttribute(int varSeq, Subst subst,
                                      String domain, Attribute attribute) {
-        final Option<Object> untypedMap = subst.get(-varSeq - 1);
-        if (untypedMap.isEmpty()) {
+        final Object untypedMap = subst.lookup(-varSeq - 1);
+        if (untypedMap == null) {
             return subst.put(-varSeq - 1, HashMap.of(domain, attribute));
         } else {
             //noinspection unchecked
-            return subst.put(-varSeq - 1, ((Map<String, Attribute>) untypedMap.get()).put(domain, attribute));
+            return subst.put(-varSeq - 1, ((Map<String, Attribute>) untypedMap).put(domain, attribute));
         }
     }
 
@@ -563,12 +488,12 @@ public class Logish {
 
     public static Subst removeAttribute(int varSeq, Subst subst,
                                         String domain) {
-        final Option<Object> untypedMap = subst.get(-varSeq - 1);
-        if (untypedMap.isEmpty()) {
+        final Object untypedMap = subst.lookup(-varSeq - 1);
+        if (untypedMap == null) {
             return subst;
         } else {
             @SuppressWarnings("unchecked") final Map<String, Attribute> typedMap =
-                    (Map<String, Attribute>) untypedMap.get();
+                    (Map<String, Attribute>) untypedMap;
             if (typedMap.containsKey(domain)) {
                 return subst.put(-varSeq - 1, typedMap.remove(domain));
             } else {
@@ -579,20 +504,20 @@ public class Logish {
 
     static Option<Subst> bind(Var v1, Var v2, Subst subst) {
         Subst bound = subst.put(v1.index, v2);
-        final Option<Object> optMap1 = subst.get(-v1.index - 1),
-                optMap2 = subst.get(-v2.index - 1);
-        if (!optMap1.isEmpty()) {
+        final Object nmap1 = subst.lookup(-v1.index - 1),
+                nmap2 = subst.lookup(-v2.index - 1);
+        if (nmap1 != null) {
             // v1 had some attributes
             bound = bound.remove(-v1.index - 1); // remove them from the map
-            if (optMap2.isEmpty()) {
+            if (nmap2 == null) {
                 // v1 had no attributes: copy those from v1
-                bound = bound.put(-v2.index - 1, optMap1.get());
+                bound = bound.put(-v2.index - 1, nmap1);
             } else {
                 // Combine v1's attributes into v2's
                 @SuppressWarnings("unchecked") final Map<String, Attribute> map1 =
-                        (Map<String, Attribute>) optMap1.get();
+                        (Map<String, Attribute>) nmap1;
                 @SuppressWarnings("unchecked") Map<String, Attribute> map2 =
-                        (Map<String, Attribute>) optMap2.get();
+                        (Map<String, Attribute>) nmap2;
                 for (final Tuple2<String, Attribute> e1 : map1) {
                     final String domain = e1._1;
                     final Option<Attribute> a2 = map2.get(domain);
@@ -620,12 +545,12 @@ public class Logish {
     }
 
     static Option<Subst> instantiate(Var v, Object o, Subst subst) {
-        final Option<Object> optMap = subst.get(-v.index - 1);
-        if (optMap.isEmpty()) {
+        final Object nmap = subst.lookup(-v.index - 1);
+        if (nmap == null) {
             return Option.of(subst.put(v.index, o));
         } else {
             @SuppressWarnings("unchecked") final Map<String, Attribute> map =
-                    (Map<String, Attribute>) optMap.get();
+                    (Map<String, Attribute>) nmap;
             final Option<Attribute> optDelegating = map.valuesIterator().find(Attribute::delegating);
             if (!optDelegating.isEmpty()) {
                 return optDelegating.get().validate(v, o, subst);
@@ -676,17 +601,17 @@ public class Logish {
         } else if (left instanceof Cons) {
             Subst current = subst;
             while (left instanceof Cons) {
-                final Cons leftCons = (Cons) left;
+                final Cons leftConsCell = (Cons) left;
                 if (!(right instanceof Cons)) {
                     if (right instanceof Var) break;
                     return Option.none();
                 }
-                final Cons rightCons = (Cons) right;
-                final Option<Subst> headResult = unify(leftCons.car, rightCons.car, current);
+                final Cons rightConsCell = (Cons) right;
+                final Option<Subst> headResult = unify(leftConsCell.car, rightConsCell.car, current);
                 if (headResult.isEmpty()) return Option.none();
                 current = headResult.get();
-                left = walk(leftCons.cdr, current);
-                right = walk(rightCons.cdr, current);
+                left = walk(leftConsCell.cdr, current);
+                right = walk(rightConsCell.cdr, current);
                 if (left == right) return Option.of(current);
             }
             return unify(left, right, current);
@@ -704,12 +629,12 @@ public class Logish {
     static Tuple2<Map<String, List<Constraint>>, SortedSet<Integer>> augmentConstraints(int varSeq,
                                                                                         Subst subst,
                                                                                         Map<String, List<Constraint>> start) {
-        Option<Object> optAttributes = subst.get(-varSeq - 1);
-        if (optAttributes.isEmpty()) return Tuple.of(start, TreeSet.empty());
+        Object attributes = subst.lookup(-varSeq - 1);
+        if (attributes == null) return Tuple.of(start, TreeSet.empty());
         Map<String, List<Constraint>> constraints = start;
         SortedSet<Integer> otherVars = TreeSet.empty();
         //noinspection unchecked
-        for (final Tuple2<String, Attribute> entry : (Map<String, Attribute>) optAttributes.get()) {
+        for (final Tuple2<String, Attribute> entry : (Map<String, Attribute>) attributes) {
             final String domain = entry._1;
             final Option<List<Constraint>> seen = start.get(domain);
             List<Constraint> update = seen.isEmpty() ? null : seen.get();
