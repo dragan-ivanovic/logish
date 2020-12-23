@@ -680,49 +680,26 @@ public class Logish {
         });
     }
 
-    @SuppressWarnings({"unused", "SuspiciousNameCombination"})
-    public static abstract class Goal implements Function<Subst, Series<Subst>> {
+    public interface Goal extends Function<Subst, Series<Subst>> {
+//        Series<Subst> apply(Subst subst);
+    }
 
-        static class Delayed extends Goal {
-            final Supplier<Goal> supplier;
+    public static class StdGoals {
 
-            public Delayed(Supplier<Goal> supplier) {
-                this.supplier = supplier;
-            }
 
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                return supplier.get().apply(subst);
-            }
-        }
-
-        static class Failure extends Goal {
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                return Series.empty();
-            }
-
-            static final Failure INSTANCE = new Failure();
-        }
-
-        static class Success extends Goal {
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                return Series.cons(subst, Series.empty());
-            }
-
-            static final Success INSTANCE = new Success();
+        public static Goal delayed(Supplier<Goal> supplier) {
+            return subst -> supplier.get().apply(subst);
         }
 
         public static Goal failure() {
-            return Failure.INSTANCE;
+            return subst -> Series.empty();
         }
 
         public static Goal success() {
-            return Success.INSTANCE;
+            return subst -> Series.singleton(subst);
         }
 
-        static class Conj extends Goal {
+        static class Conj implements Goal {
             final Goal first, second;
 
             Conj(Goal first, Goal second) {
@@ -736,7 +713,7 @@ public class Logish {
             }
         }
 
-        static class Disj extends Goal {
+        static class Disj implements Goal {
             final Goal first, second;
 
             Disj(Goal first, Goal second) {
@@ -750,7 +727,7 @@ public class Logish {
             }
         }
 
-        static class ParDisj extends Goal {
+        static class ParDisj implements Goal {
             final Executor executor;
             final Goal first, second;
 
@@ -771,7 +748,7 @@ public class Logish {
 
         public static Goal seq(Goal... goal) {
             final int len = goal.length;
-            if (len == 0) return Success.INSTANCE;
+            if (len == 0) return success();
             else {
                 Goal current = goal[len - 1];
                 for (int i = len - 2; i >= 0; i--) {
@@ -782,13 +759,13 @@ public class Logish {
         }
 
         public static Goal seq(List<Goal> goals) {
-            if (goals.isEmpty()) return Success.INSTANCE;
+            if (goals.isEmpty()) return success();
             return goals.reduceRight(Conj::new);
         }
 
         public static Goal choice(Goal... goal) {
             final int len = goal.length;
-            if (len == 0) return Failure.INSTANCE;
+            if (len == 0) return failure();
             else {
                 Goal current = goal[len - 1];
                 for (int i = len - 2; i >= 0; i--) {
@@ -800,7 +777,7 @@ public class Logish {
 
         public static Goal par(Executor executor, Goal... goals) {
             final int len = goals.length;
-            if (len == 0) return Failure.INSTANCE;
+            if (len == 0) return failure();
             else {
                 Goal current = goals[len - 1];
                 for (int i = len - 2; i >= 0; i--) {
@@ -815,7 +792,7 @@ public class Logish {
         }
 
 
-        static class Unify extends Goal {
+        static class Unify implements Goal {
             final Object left, right;
 
             Unify(Object left, Object right) {
@@ -838,7 +815,7 @@ public class Logish {
             return new Unify(left, right);
         }
 
-        static class Equals extends Goal {
+        static class Equals implements Goal {
             final Object left, right;
 
             Equals(Object left, Object right) {
@@ -856,7 +833,7 @@ public class Logish {
             return new Equals(x, y);
         }
 
-        static class Same extends Goal {
+        static class Same implements Goal {
             final Object left, right;
 
             Same(Object left, Object right) {
@@ -875,7 +852,7 @@ public class Logish {
         }
 
 
-        static class Not extends Goal {
+        static class Not implements Goal {
             final Goal goal;
 
             Not(Goal goal) {
@@ -890,10 +867,14 @@ public class Logish {
         }
 
         public static Goal not(Goal goal) {
-            return new Not(goal);
+//            return new Not(goal);
+            return (Subst subst) -> {
+                final Series<Subst> result = goal.apply(subst).forceDeep();
+                return result.isEmpty() ? Series.singleton(subst) : Series.empty();
+            };
         }
 
-        static class Fresh1 extends Goal {
+        static class Fresh1 implements Goal {
             final Function1<Var, Goal> body;
 
             Fresh1(Function1<Var, Goal> body) {
@@ -908,7 +889,7 @@ public class Logish {
             }
         }
 
-        static class Fresh2 extends Goal {
+        static class Fresh2 implements Goal {
             final Function2<Var, Var, Goal> body;
 
             Fresh2(Function2<Var, Var, Goal> body) {
@@ -924,7 +905,7 @@ public class Logish {
             }
         }
 
-        static class Fresh3 extends Goal {
+        static class Fresh3 implements Goal {
             final Function3<Var, Var, Var, Goal> body;
 
             Fresh3(Function3<Var, Var, Var, Goal> body) {
@@ -966,10 +947,6 @@ public class Logish {
             return new Fresh3((v1, v2, v3) -> fresh((v4, v5, v6) -> body.apply(v1, v2, v3, v4, v5, v6)));
         }
 
-        public static Goal delayed(Supplier<Goal> supplier) {
-            return new Delayed(supplier);
-        }
-
         public static Goal consO(Object x, Object y, Object z) {
             return unify(z, new Cons(x, y));
         }
@@ -998,11 +975,11 @@ public class Logish {
         public static Goal memberCheckO(Object x, Object y) {
             return fresh((t, h) -> seq(
                     unify(y, Cons.make(t, h)),
-                    ifte(unify(x, h), Goal::success, () -> memberCheckO(x, t))
+                    ifte(unify(x, h), StdGoals::success, () -> memberCheckO(x, t))
             ));
         }
 
-        static class Ifte extends Goal {
+        static class Ifte implements Goal {
             final Goal question;
             final Supplier<Goal> thenBranch;
             final Supplier<Goal> elseBranch;
@@ -1028,7 +1005,7 @@ public class Logish {
             return new Ifte(question, thenBranch, elseBranch);
         }
 
-        static class Once extends Goal {
+        static class Once implements Goal {
             final Goal goal;
 
             Once(Goal goal) {
@@ -1071,7 +1048,7 @@ public class Logish {
 
         public static Goal conda(Clause... clauses) {
             final int len = clauses.length;
-            Supplier<Goal> current = Goal::failure;
+            Supplier<Goal> current = StdGoals::failure;
             for (int i = len - 1; i >= 0; i--) {
                 final Goal guard = clauses[i].guard;
                 final Supplier<Goal> body = clauses[i].body;
@@ -1083,7 +1060,7 @@ public class Logish {
 
         public static Goal condu(Clause... clauses) {
             final int len = clauses.length;
-            Supplier<Goal> current = Goal::failure;
+            Supplier<Goal> current = StdGoals::failure;
             for (int i = len - 1; i >= 0; i--) {
                 final Goal guard = clauses[i].guard;
                 final Supplier<Goal> body = clauses[i].body;
@@ -1093,7 +1070,7 @@ public class Logish {
             return delayed(current);
         }
 
-        static class Free extends Goal {
+        static class Free implements Goal {
             final Object x;
 
             Free(Object x) {
@@ -1110,7 +1087,7 @@ public class Logish {
             return new Free(x);
         }
 
-        static class Test0 extends Goal {
+        static class Test0 implements Goal {
             final Function0<Boolean> test;
 
             Test0(Function0<Boolean> test) {
@@ -1123,7 +1100,7 @@ public class Logish {
             }
         }
 
-        static class Test1<T> extends Goal {
+        static class Test1<T> implements Goal {
             final Class<T> clazz;
             final Object x;
             final Function1<T, Boolean> test;
@@ -1141,7 +1118,7 @@ public class Logish {
             }
         }
 
-        static class Test2<T1, T2> extends Goal {
+        static class Test2<T1, T2> implements Goal {
             final Class<T1> clazzX;
             final Object x;
             final Class<T2> clazzY;
@@ -1165,7 +1142,7 @@ public class Logish {
             }
         }
 
-        static class Test3<T1, T2, T3> extends Goal {
+        static class Test3<T1, T2, T3> implements Goal {
             final Class<T1> clazzX;
             final Object x;
             final Class<T2> clazzY;
@@ -1231,7 +1208,7 @@ public class Logish {
             return new Test3<>(clazz, x, clazz, y, clazz, z, test);
         }
 
-        static class Side0 extends Goal {
+        static class Side0 implements Goal {
             final Function0<Void> action;
 
             Side0(Function0<Void> action) {
@@ -1245,7 +1222,7 @@ public class Logish {
             }
         }
 
-        static class Side1<T> extends Goal {
+        static class Side1<T> implements Goal {
             final Class<T> clazz;
             final Object x;
             final Function1<T, Void> action;
@@ -1264,7 +1241,7 @@ public class Logish {
             }
         }
 
-        static class Side2<T1, T2> extends Goal {
+        static class Side2<T1, T2> implements Goal {
             final Class<T1> clazzX;
             final Object x;
             final Class<T2> clazzY;
@@ -1288,7 +1265,7 @@ public class Logish {
             }
         }
 
-        static class Side3<T1, T2, T3> extends Goal {
+        static class Side3<T1, T2, T3> implements Goal {
             final Class<T1> clazzX;
             final Object x;
             final Class<T2> clazzY;
@@ -1349,7 +1326,7 @@ public class Logish {
             return new Side3<>(clazz, x, clazz, y, clazz, z, test);
         }
 
-        static class Map0 extends Goal {
+        static class Map0 implements Goal {
             final Function0<Object> f;
             final Object w;
 
@@ -1365,7 +1342,7 @@ public class Logish {
             }
         }
 
-        static class Map1<T> extends Goal {
+        static class Map1<T> implements Goal {
             final Class<T> clazz;
             final Object x;
             final Function1<T, Object> f;
@@ -1387,7 +1364,7 @@ public class Logish {
             }
         }
 
-        static class Map2<T1, T2> extends Goal {
+        static class Map2<T1, T2> implements Goal {
             final Class<T1> clazzX;
             final Object x;
             final Class<T2> clazzY;
@@ -1415,7 +1392,7 @@ public class Logish {
             }
         }
 
-        static class Map3<T1, T2, T3> extends Goal {
+        static class Map3<T1, T2, T3> implements Goal {
             final Class<T1> clazzX;
             final Object x;
             final Class<T2> clazzY;
@@ -1469,7 +1446,7 @@ public class Logish {
             return new Map3<>(clazzX, x, clazzY, y, clazzZ, z, f, w);
         }
 
-        static class Element extends Goal {
+        static class Element implements Goal {
             final Object x;
             final Seq<?> sequence;
 

@@ -9,7 +9,7 @@ import org.junit.Test;
 import java.util.function.Consumer;
 
 import static org.cellx.logish.Fd.*;
-import static org.cellx.logish.Logish.Goal.*;
+import static org.cellx.logish.Logish.StdGoals.*;
 import static org.cellx.logish.Logish.runC;
 
 public class FdTest {

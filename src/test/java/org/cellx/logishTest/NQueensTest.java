@@ -8,7 +8,7 @@ import org.cellx.logish.Cons;
 import org.cellx.logish.Logish;
 import org.junit.Test;
 
-import static org.cellx.logish.Logish.Goal.*;
+import static org.cellx.logish.Logish.StdGoals.*;
 import static org.cellx.logish.Logish.run;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;

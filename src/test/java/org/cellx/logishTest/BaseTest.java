@@ -10,7 +10,7 @@ import org.junit.Test;
 
 import java.util.function.Consumer;
 
-import static org.cellx.logish.Logish.Goal.*;
+import static org.cellx.logish.Logish.StdGoals.*;
 import static org.cellx.logish.Logish.run;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -219,7 +219,7 @@ public class BaseTest {
 
     static Logish.Goal listOfO(Object x, Object e) {
         return fresh(t -> conda(
-                clause(unify(x, Cons.NIL), Logish.Goal::success),
+                clause(unify(x, Cons.NIL), Logish.StdGoals::success),
                 clause(unify(x, Cons.make(t, e)), () -> listOfO(t, e)))
         );
     }

@@ -16,6 +16,7 @@ import org.cellx.logish.Logish.*;
 import java.util.*;
 
 import static org.cellx.logish.Logish.*;
+import static org.cellx.logish.Logish.StdGoals.*;
 
 @SuppressWarnings({"unused", "SuspiciousNameCombination"})
 public class Fd {
@@ -443,7 +444,7 @@ public class Fd {
         }
     }
 
-    static class DomGoal extends Goal {
+    static class DomGoal implements Goal {
         final Var v0;
         final Domain domain;
 
@@ -492,7 +493,7 @@ public class Fd {
     }
 
     public static Goal domAll(Seq<Integer> elements, Var... vars) {
-        return Goal.seq(List.ofAll(Arrays.stream(vars))
+        return StdGoals.seq(List.ofAll(Arrays.stream(vars))
                 .map(v -> new DomGoal(v, new Subset(TreeSet.ofAll(elements)))));
     }
 
@@ -1434,7 +1435,7 @@ public class Fd {
         }
     }
 
-    static class AriGoal extends Goal {
+    static class AriGoal implements Goal {
 
 
         final FdConstraint constraint;
@@ -1462,7 +1463,7 @@ public class Fd {
     }
 
     public static Goal plusO(int x, int y, Var z) {
-        return Goal.unify(x + y, z);
+        return unify(x + y, z);
     }
 
     public static Goal plusO(Var x, Var y, int z) {
@@ -1470,15 +1471,15 @@ public class Fd {
     }
 
     public static Goal plusO(int x, Var y, int z) {
-        return Goal.unify(z - x, y);
+        return unify(z - x, y);
     }
 
     public static Goal plusO(Var x, int y, int z) {
-        return Goal.unify(z - y, x);
+        return unify(z - y, x);
     }
 
     public static Goal plusO(int x, int y, int z) {
-        return x + y == z ? Goal.success() : Goal.failure();
+        return x + y == z ? success() : failure();
     }
 
 
@@ -1556,7 +1557,7 @@ public class Fd {
 //    }
 //
 //    public static Goal neqO(int x, int y) {
-//        return x != y ? Goal.success() : Goal.failure();
+//        return x != y ? Goal.success() : Goal.implements Goal);
 //    }
 
     public static Goal allDifferentO(Var... vs) {
@@ -1703,7 +1704,7 @@ public class Fd {
 //    }
 //
 //    public static Goal leqO(int x, int y) {
-//        return x <= y ? Goal.success() : Goal.failure();
+//        return x <= y ? Goal.success() : Goal.implements Goal);
 //    }
 //
 //
@@ -1843,7 +1844,7 @@ public class Fd {
 //    }
 //
 //    public static Goal ltO(int x, int y) {
-//        return x < y ? Goal.success() : Goal.failure();
+//        return x < y ? Goal.success() : Goal.implements Goal);
 //    }
 
     static class TimesCVV implements FdConstraint {
@@ -1988,22 +1989,22 @@ public class Fd {
 
 
     public static Goal timesO(int x, Var y, Var z) {
-        if (x == 0) return Goal.unify(z, 0);
+        if (x == 0) return unify(z, 0);
         else return new AriGoal(new TimesCVV(x, y, z));
     }
 
     public static Goal timesO(int x, Var y, int z) {
-        if (x == 0) return z == 0 ? Goal.success() : Goal.failure();
-        else if (z % x != 0) return Goal.failure();
-        else return Goal.unify(y, z / x);
+        if (x == 0) return z == 0 ? success() : failure();
+        else if (z % x != 0) return failure();
+        else return unify(y, z / x);
     }
 
     public static Goal timesO(int x, int y, Var z) {
-        return Goal.unify(z, x * y);
+        return unify(z, x * y);
     }
 
     public static Goal linearO(int c1, Var v1, int c2, Var v2, Var r) {
-        return Goal.fresh((m1, m2) -> Goal.seq(
+        return fresh((m1, m2) -> seq(
                 timesO(c1, v1, m1),
                 timesO(c2, v2, m2),
                 plusO(m1, m2, r)
@@ -2011,7 +2012,7 @@ public class Fd {
     }
 
     public static Goal linearO(int c1, Var v1, int c2, Var v2, int r) {
-        return Goal.fresh((m1, m2) -> Goal.seq(
+        return fresh((m1, m2) -> seq(
                 timesO(c1, v1, m1),
                 timesO(c2, v2, m2),
                 plusO(m1, m2, r)
@@ -2019,7 +2020,7 @@ public class Fd {
     }
 
     public static Goal linearO(int c1, Var v1, int c2, Var v2, int c3, Var v3, Var r) {
-        return Goal.fresh((m1, m2, m12, m3) -> Goal.seq(
+        return fresh((m1, m2, m12, m3) -> seq(
                 timesO(c1, v1, m1),
                 timesO(c2, v2, m2),
                 plusO(m1, m2, m12),
@@ -2029,7 +2030,7 @@ public class Fd {
     }
 
     public static Goal linearO(int c1, Var v1, int c2, Var v2, int c3, Var v3, int r) {
-        return Goal.fresh((m1, m2, m12, m3) -> Goal.seq(
+        return fresh((m1, m2, m12, m3) -> seq(
                 timesO(c1, v1, m1),
                 timesO(c2, v2, m2),
                 plusO(m1, m2, m12),
@@ -2039,7 +2040,7 @@ public class Fd {
     }
 
     public static Goal linearO(int c1, Var v1, int c2, Var v2, int c3, Var v3, int c4, Var v4, Var r) {
-        return Goal.fresh((m1, m2, m12, m3, m13, m4) -> Goal.seq(
+        return fresh((m1, m2, m12, m3, m13, m4) -> seq(
                 timesO(c1, v1, m1),
                 timesO(c2, v2, m2),
                 plusO(m1, m2, m12),
@@ -2051,7 +2052,7 @@ public class Fd {
     }
 
     public static Goal linearO(int c1, Var v1, int c2, Var v2, int c3, Var v3, int c4, Var v4, int r) {
-        return Goal.fresh((m1, m2, m12, m3, m13, m4) -> Goal.seq(
+        return fresh((m1, m2, m12, m3, m13, m4) -> seq(
                 timesO(c1, v1, m1),
                 timesO(c2, v2, m2),
                 plusO(m1, m2, m12),
@@ -2063,7 +2064,7 @@ public class Fd {
     }
 
     public static Goal linearO(int c1, Var v1, int c2, Var v2, int c3, Var v3, int c4, Var v4, int c5, Var v5, Var r) {
-        return Goal.fresh((m1, m2, m12, m3, m13, m4) -> Goal.fresh((m14, m5) -> Goal.seq(
+        return fresh((m1, m2, m12, m3, m13, m4) -> fresh((m14, m5) -> seq(
                 timesO(c1, v1, m1),
                 timesO(c2, v2, m2),
                 plusO(m1, m2, m12),
@@ -2077,7 +2078,7 @@ public class Fd {
     }
 
     public static Goal linearO(int c1, Var v1, int c2, Var v2, int c3, Var v3, int c4, Var v4, int c5, Var v5, int r) {
-        return Goal.fresh((m1, m2, m12, m3, m13, m4) -> Goal.fresh((m14, m5) -> Goal.seq(
+        return fresh((m1, m2, m12, m3, m13, m4) -> fresh((m14, m5) -> seq(
                 timesO(c1, v1, m1),
                 timesO(c2, v2, m2),
                 plusO(m1, m2, m12),
@@ -2090,7 +2091,7 @@ public class Fd {
         )));
     }
 
-    static class LabelingGoal extends Goal {
+    static class LabelingGoal implements Goal {
         final List<Var> vars;
 
         public LabelingGoal(List<Var> vars) {

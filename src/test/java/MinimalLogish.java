@@ -1,5 +1,5 @@
 import static org.cellx.logish.Logish.run;
-        import static org.cellx.logish.Logish.Goal.*;
+        import static org.cellx.logish.Logish.StdGoals.*;
         import io.vavr.collection.Stream;
 
 public class MinimalLogish {
