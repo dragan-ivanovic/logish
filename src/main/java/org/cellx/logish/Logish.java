@@ -17,16 +17,16 @@ import java.util.function.Supplier;
 public class Logish {
 
 
-    public static IdentityMap<Var, Object> varIndices(Object o) {
+    public static IdentityMap<Var, Object> variables(Object o) {
         final IdentityMap<Var, Object> emptyMap = IdentityMap.empty();
         if (o instanceof Var) return emptyMap.with((Var) o, Boolean.TRUE);
         if (!(o instanceof Cons)) return emptyMap;
         IdentityMap<Var, Object> current = emptyMap;
         while (o instanceof Cons) {
-            current = current.withAll(varIndices(((Cons) o).car));
+            current = current.withAll(variables(((Cons) o).car));
             o = ((Cons) o).cdr;
         }
-        return current.withAll(varIndices(o));
+        return current.withAll(variables(o));
     }
 
     public static boolean exists(Object list, Predicate<Object> predicate) {
@@ -493,7 +493,7 @@ public class Logish {
                 if (seen.isEmpty() || !seen.get().contains(c)) {
                     update = (update == null ? List.of(c) : update.prepend(c));
                     updated = true;
-                    otherVars = otherVars.withAll(varIndices(walkDeep(c.symbolicRepr(), subst)).without(v));
+                    otherVars = otherVars.withAll(variables(walkDeep(c.symbolicRepr(), subst)).without(v));
                 }
             }
             if (updated) constraints = constraints.put(domain, update);
@@ -503,7 +503,7 @@ public class Logish {
 
     static Map<String, List<Constraint>> collectConstraints(Object o, Subst subst) {
         Map<String, List<Constraint>> result = TreeMap.empty();
-        IdentityMap<Var, Object> varsToGo = varIndices(o);
+        IdentityMap<Var, Object> varsToGo = variables(o);
         IdentityMap<Var, Object> seenVars = IdentityMap.empty();
         while (!varsToGo.isEmpty()) {
             IdentityMap<Var, Object> otherVars = IdentityMap.empty();
@@ -830,6 +830,11 @@ public class Logish {
             };
         }
 
+        public static <T> Goal test(Class<T> clazzXY, Var x, Var y,
+                                         Function2<T, T, Boolean> test) {
+            return test(clazzXY, x, clazzXY, y, test);
+        }
+
         public static <T1, T2, T3> Goal test(Class<T1> clazzX, Var x,
                                              Class<T2> clazzY, Var y,
                                              Class<T3> clazzZ, Var z,
@@ -845,13 +850,7 @@ public class Logish {
 
         public static <T> Goal test(Class<T> clazzXYZ, Var x, Var y, Var z,
                                     Function3<T, T, T, Boolean>test) {
-            return subst -> {
-                final Object derefX = walk(x, subst), derefY = walk(y, subst), derefZ = walk(z, subst);
-                return clazzXYZ.isInstance(derefX) && clazzXYZ.isInstance(derefY) &&
-                        clazzXYZ.isInstance(derefZ) &&
-                        test.apply(clazzXYZ.cast(derefX), clazzXYZ.cast(derefY), clazzXYZ.cast(derefZ)) ?
-                        Series.singleton(subst) : Series.empty();
-            };
+            return test(clazzXYZ, x, clazzXYZ, y, clazzXYZ, z, test);
         }
 
         public static Goal side(Function0<Void> action) {
@@ -881,6 +880,11 @@ public class Logish {
             };
         }
 
+        public static <T> Goal side(Class<T> clazzXY, Var x, Var y,
+                                         Function2<T, T, Void> action) {
+            return side(clazzXY, x, clazzXY, y, action);
+        }
+
         public static <T1, T2, T3> Goal side(Class<T1> clazzX, Var x,
                                              Class<T2> clazzY, Var y,
                                              Class<T3> clazzZ, Var z,
@@ -892,6 +896,11 @@ public class Logish {
                 action.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ));
                 return Series.singleton(subst);
             };
+        }
+
+        public static <T> Goal side(Class<T> clazzXYZ, Var x, Var y, Var z,
+                                    Function3<T, T, T, Void> action) {
+            return side(clazzXYZ, x, clazzXYZ, y, clazzXYZ, z, action);
         }
 
         public static Goal map(Function0<Object> f, Object w) {
@@ -915,6 +924,11 @@ public class Logish {
             };
         }
 
+        public static <T> Goal map(Class<T> clazzXY, Var x, Var y,
+                                        Function2<T, T, Object> f, Object w) {
+            return map(clazzXY, x, clazzXY, y, f, w);
+        }
+
         public static <T1, T2, T3> Goal map(Class<T1> clazzX, Var x, Class<T2> clazzY, Var y,
                                             Class<T3> clazzZ, Var z,
                                             Function3<T1, T2, T3, Object> f, Object w) {
@@ -923,6 +937,11 @@ public class Logish {
                 if (!clazzX.isInstance(x) || !clazzY.isInstance(y) || !clazzZ.isInstance(derefZ)) return Series.empty();
                 return unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ))).apply(subst);
             };
+        }
+
+        public static <T> Goal map(Class<T> clazzXYZ, Var x, Var y, Var z,
+                                   Function3<T, T, T, Object> f, Object w) {
+            return map(clazzXYZ, x, clazzXYZ, y, clazzXYZ, z, f, w);
         }
 
         public static Goal element(Object x, Seq<?> sequence) {
