@@ -825,7 +825,8 @@ public class Logish {
             return subst -> {
                 final Object derefX = walk(x, subst), derefY = walk(y, subst);
                 return clazzX.isInstance(derefX) && clazzY.isInstance(derefY) &&
-                        test.apply(clazzX.cast(x), clazzY.cast(y)) ? Series.singleton(subst) : Series.empty();
+                        test.apply(clazzX.cast(derefX), clazzY.cast(derefY)) ?
+                        Series.singleton(subst) : Series.empty();
             };
         }
 
@@ -837,7 +838,8 @@ public class Logish {
                 final Object derefX = walk(x, subst), derefY = walk(y, subst), derefZ = walk(z, subst);
                 return clazzX.isInstance(derefX) && clazzY.isInstance(derefY) &&
                         clazzZ.isInstance(derefZ) &&
-                        test.apply(clazzX.cast(x), clazzY.cast(y), clazzZ.cast(z)) ? Series.singleton(subst) : Series.empty();
+                        test.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ)) ?
+                        Series.singleton(subst) : Series.empty();
             };
         }
 
@@ -847,7 +849,8 @@ public class Logish {
                 final Object derefX = walk(x, subst), derefY = walk(y, subst), derefZ = walk(z, subst);
                 return clazzXYZ.isInstance(derefX) && clazzXYZ.isInstance(derefY) &&
                         clazzXYZ.isInstance(derefZ) &&
-                        test.apply(clazzXYZ.cast(x), clazzXYZ.cast(y), clazzXYZ.cast(z)) ? Series.singleton(subst) : Series.empty();
+                        test.apply(clazzXYZ.cast(derefX), clazzXYZ.cast(derefY), clazzXYZ.cast(derefZ)) ?
+                        Series.singleton(subst) : Series.empty();
             };
         }
 
