@@ -1,10 +1,13 @@
 package org.cellx.logish;
 
+import io.vavr.Tuple2;
 import io.vavr.control.Option;
 
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
 public class IdentityMap<K, V> implements Iterable<Map.Entry<K,V>> {
 
@@ -24,6 +27,14 @@ public class IdentityMap<K, V> implements Iterable<Map.Entry<K,V>> {
 
     IdentityMap(IntMap<Link> map) {
         this.map = map;
+    }
+
+    public boolean isEmpty() {
+        return map.isEmpty();
+    }
+
+    public static <K,V> IdentityMap<K,V> empty() {
+        return new IdentityMap(IntMap.empty());
     }
 
     public V lookup(K key) {
@@ -148,8 +159,76 @@ public class IdentityMap<K, V> implements Iterable<Map.Entry<K,V>> {
         }
     }
 
+    class KeyIterator implements Iterator<K> {
+        final EntryIterator entryIterator = new EntryIterator();
+
+        @Override
+        public boolean hasNext() {
+            return entryIterator.hasNext();
+        }
+
+        @Override
+        public K next() {
+            return entryIterator.next().getKey();
+        }
+    }
+
     @Override
     public Iterator<Map.Entry<K, V>> iterator() {
         return new EntryIterator();
+    }
+
+    public Iterator<K> keysIterator() { return new KeyIterator(); }
+
+    class KeysIterable implements Iterable<K> {
+        @Override
+        public Iterator<K> iterator() {
+            return keysIterator();
+        }
+    }
+
+    public Iterable<K> keysIterable() {
+        return new KeysIterable();
+    }
+
+    public IdentityMap<K,V> withAll(Iterable<Map.Entry<K,V>> iterable) {
+        IdentityMap<K,V> result = this;
+        for(Map.Entry<K,V> entry: iterable) {
+            result = result.with(entry.getKey(), entry.getValue());
+        }
+        return result;
+    }
+
+    public IdentityMap<K,V> withoutAllKeys(Iterable<Map.Entry<K,V>> iterable) {
+        IdentityMap<K,V> result = this;
+        for(Map.Entry<K,V> entry: iterable) {
+            result = result.without(entry.getKey());
+        }
+        return result;
+    }
+
+    public IdentityMap<K,V> filter(Predicate<Tuple2<K,V>> predicate) {
+        IdentityMap<K,V> result = IdentityMap.empty();
+        for (final Map.Entry<K,V> entry : this) {
+            final K key = entry.getKey();
+            final V value = entry.getValue();
+            if (predicate.test(new Tuple2<>(key, value))) {
+                result = result.with(key, value);
+            }
+        }
+        return result;
+    }
+
+    public <U> IdentityMap<K,U> mapValues(Function<V,U> f) {
+        IdentityMap<K,U> result = IdentityMap.empty();
+        for (final Map.Entry<K,V> entry : this) {
+            final K key = entry.getKey();
+            final V value = entry.getValue();
+            final U newValue = f.apply(value);
+            if (newValue != null) {
+                result = result.with(key, newValue);
+            }
+        }
+        return result;
     }
 }

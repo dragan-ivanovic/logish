@@ -7,7 +7,7 @@ package org.cellx.logish;
  */
 public interface Term<T> {
 
-    T construct(Logish.Subst subst);
+    T construct(Subst subst);
 
     Logish.Goal unify(Term<T> other);
 

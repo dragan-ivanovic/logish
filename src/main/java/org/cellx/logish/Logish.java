@@ -6,7 +6,6 @@ import io.vavr.control.Option;
 
 import java.lang.Iterable;
 import java.util.Iterator;
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -18,57 +17,16 @@ import java.util.function.Supplier;
 public class Logish {
 
 
-    public final static class Subst {
-        final IntMap<Object> map;
-
-        protected Subst(IntMap<Object> map) {
-            this.map = map;
-        }
-
-        public static Subst empty() {
-            return new Subst(IntMap.empty());
-        }
-
-        public Object getSome(int key) {
-            final Object value = map.getOrNull(key);
-            if (value == null) throw new NoSuchElementException();
-            return value;
-        }
-
-        public Option<Object> getOption(int key) {
-            return map.get(key);
-        }
-
-        public Object lookup(int key) {
-            return map.getOrNull(key);
-        }
-
-        public Subst put(int key, Object value) {
-            final IntMap<Object> newMap = map.with(key, value);
-            if (newMap == map) return this;
-            else return new Subst(newMap);
-        }
-
-        public Subst remove(int key) {
-            final IntMap<Object> newMap = map.without(key);
-            if (newMap == map) return this;
-            else return new Subst(newMap);
-        }
-
-        public int nextVarIndex() {
-            return map.isEmpty() ? 0 : map.maxKey() + 1;
-        }
-    }
-
-    public static SortedSet<Integer> varIndices(Object o) {
-        if (o instanceof Var) return TreeSet.of(((Var) o).index);
-        if (!(o instanceof Cons)) return TreeSet.empty();
-        SortedSet<Integer> current = TreeSet.empty();
+    public static IdentityMap<Var, Object> varIndices(Object o) {
+        final IdentityMap<Var, Object> emptyMap = IdentityMap.empty();
+        if (o instanceof Var) return emptyMap.with((Var) o, Boolean.TRUE);
+        if (!(o instanceof Cons)) return emptyMap;
+        IdentityMap<Var, Object> current = emptyMap;
         while (o instanceof Cons) {
-            current = current.union(varIndices(((Cons) o).car));
+            current = current.withAll(varIndices(((Cons) o).car));
             o = ((Cons) o).cdr;
         }
-        return current.union(varIndices(o));
+        return current.withAll(varIndices(o));
     }
 
     public static boolean exists(Object list, Predicate<Object> predicate) {
@@ -84,51 +42,24 @@ public class Logish {
         return !first && predicate.test(list);
     }
 
-//    public static boolean isMoreInstantiated(Object o1, Object o2, Subst subst) {
-//        final Object v1 = walk(o1, subst);
-//        final Object v2 = walk(o2, subst);
-//        if (v1 == null) return v2 == null;
-//        if (v1 == v2 || v1.equals(v2)) return true;
-//        if (v2 instanceof Var) return true;
-//        if (v1 instanceof Var) return false;
-//        if (v1 instanceof Cons) {
-//            if (v2 instanceof Cons) {
-//
-//            }
-//        }
-//    }
-
     public static Object walk(Object term, Subst subst) {
         while (term instanceof Var) {
-            final Object o = subst.getSome(((Var) term).index);
-            if (o == term) break;
+            final Object o = subst.lookup((Var) term);
+            if (o == null) break;
             term = o;
         }
         return term;
     }
 
     public static Var walkVar(Var v, Subst subst) {
-        int prevSeq = v.index;
-        Object t = subst.getSome(prevSeq);
-        while (t instanceof Var) {
-            v = (Var) t;
-            if (v.index == prevSeq) break;
-            prevSeq = v.index;
-            t = subst.getSome(prevSeq);
+        Object o = subst.lookup(v);
+        while (o instanceof Var) {
+            v = (Var) o;
+            o = subst.lookup(v);
         }
         return v;
     }
 
-    public static int walkVarIndex(int varIndex, Subst subst) {
-        Object t = subst.getSome(varIndex);
-        while (t instanceof Var) {
-            final int nextVarIndex = ((Var) t).index;
-            if (nextVarIndex == varIndex) break;
-            varIndex = nextVarIndex;
-            t = subst.getSome(varIndex);
-        }
-        return varIndex;
-    }
 
     public static Object walkDeep(Object term0, Subst subst) {
         final Object term = walk(term0, subst);
@@ -431,93 +362,25 @@ public class Logish {
         }
     }
 
-    public interface Constraint {
-        Cons symbolicRepr();
-    }
-
-    public interface Attribute {
-        Option<Subst> validate(Var v, Object o, Subst subst);
-
-        boolean delegating();
-
-        List<Constraint> constraints();
-
-        Option<Tuple2<Option<Attribute>, Subst>> combine(Var v, Attribute other, Subst subst);
-    }
-
     @SuppressWarnings("unused")
     static Option<Subst> wrapGoal(Goal goal, Subst subst) {
         final Series<Subst> result = goal.apply(subst).forceDeep();
         return result.isEmpty() ? Option.none() : Option.of(result.head());
     }
 
-    public static Option<Attribute> getAttribute(Var v, Subst subst, String domain) {
-        return getAttribute(v.index, subst, domain);
-    }
-
-    public static Option<Attribute> getAttribute(int varSeq, Subst subst, String domain) {
-        final Object untypedMap = subst.lookup(-varSeq - 1);
-        if (untypedMap == null) {
-            return Option.none();
-        } else {
-            //noinspection unchecked
-            return ((Map<String, Attribute>) untypedMap).get(domain);
-        }
-    }
-
-    public static Subst setAttribute(Var v, Subst subst,
-                                     String domain, Attribute attribute) {
-        return setAttribute(v.index, subst, domain, attribute);
-    }
-
-    public static Subst setAttribute(int varSeq, Subst subst,
-                                     String domain, Attribute attribute) {
-        final Object untypedMap = subst.lookup(-varSeq - 1);
-        if (untypedMap == null) {
-            return subst.put(-varSeq - 1, HashMap.of(domain, attribute));
-        } else {
-            //noinspection unchecked
-            return subst.put(-varSeq - 1, ((Map<String, Attribute>) untypedMap).put(domain, attribute));
-        }
-    }
-
-    public static Subst removeAttribute(Var v, Subst subst,
-                                        String domain) {
-        return removeAttribute(v.index, subst, domain);
-    }
-
-    public static Subst removeAttribute(int varSeq, Subst subst,
-                                        String domain) {
-        final Object untypedMap = subst.lookup(-varSeq - 1);
-        if (untypedMap == null) {
-            return subst;
-        } else {
-            @SuppressWarnings("unchecked") final Map<String, Attribute> typedMap =
-                    (Map<String, Attribute>) untypedMap;
-            if (typedMap.containsKey(domain)) {
-                return subst.put(-varSeq - 1, typedMap.remove(domain));
-            } else {
-                return subst;
-            }
-        }
-    }
 
     static Option<Subst> bind(Var v1, Var v2, Subst subst) {
-        Subst bound = subst.put(v1.index, v2);
-        final Object nmap1 = subst.lookup(-v1.index - 1),
-                nmap2 = subst.lookup(-v2.index - 1);
-        if (nmap1 != null) {
+        Subst bound = subst.put(v1, v2);
+        final Map<String, Attribute> map1 = subst.lookupAttribute(v1);
+        Map<String, Attribute> map2 = subst.lookupAttribute(v2);
+        if (map1 != null) {
             // v1 had some attributes
-            bound = bound.remove(-v1.index - 1); // remove them from the map
-            if (nmap2 == null) {
+            bound = bound.removeAttributeMap(v1); // remove them from the map
+            if (map2 == null) {
                 // v1 had no attributes: copy those from v1
-                bound = bound.put(-v2.index - 1, nmap1);
+                bound = bound.setAttributeMap(v2, map1);
             } else {
                 // Combine v1's attributes into v2's
-                @SuppressWarnings("unchecked") final Map<String, Attribute> map1 =
-                        (Map<String, Attribute>) nmap1;
-                @SuppressWarnings("unchecked") Map<String, Attribute> map2 =
-                        (Map<String, Attribute>) nmap2;
                 for (final Tuple2<String, Attribute> e1 : map1) {
                     final String domain = e1._1;
                     final Option<Attribute> a2 = map2.get(domain);
@@ -538,24 +401,22 @@ public class Logish {
                         bound = compat._2;
                     }
                 }
-                bound = bound.put(-v2.index - 1, map2);
+                bound = bound.setAttributeMap(v2, map2);
             }
         }
         return Option.of(bound);
     }
 
     static Option<Subst> instantiate(Var v, Object o, Subst subst) {
-        final Object nmap = subst.lookup(-v.index - 1);
-        if (nmap == null) {
-            return Option.of(subst.put(v.index, o));
+        final Map<String, Attribute> map = subst.lookupAttribute(v);
+        if (map == null) {
+            return Option.of(subst.put(v, o));
         } else {
-            @SuppressWarnings("unchecked") final Map<String, Attribute> map =
-                    (Map<String, Attribute>) nmap;
             final Option<Attribute> optDelegating = map.valuesIterator().find(Attribute::delegating);
             if (!optDelegating.isEmpty()) {
                 return optDelegating.get().validate(v, o, subst);
             } else {
-                Subst inst = subst.put(v.index, o);
+                Subst inst = subst.put(v, o);
                 for (final Attribute a : map.valuesIterator()) {
                     final Option<Subst> result = a.validate(v, o, inst);
                     if (result.isEmpty()) return result;
@@ -574,18 +435,8 @@ public class Logish {
             final Var leftVar = (Var) left;
             if (right instanceof Var) {
                 final Var rightVar = (Var) right;
-                final Var newVar, oldVar;
-                if (leftVar.index < rightVar.index) {
-                    oldVar = leftVar;
-                    newVar = rightVar;
-                } else if (leftVar.index > rightVar.index) {
-                    oldVar = rightVar;
-                    newVar = leftVar;
-                } else {
-                    return Option.of(subst);
-                }
                 // newVar binds to oldVar
-                return bind(newVar, oldVar, subst);
+                return bind(leftVar, rightVar, subst);
             } else if (leftVar.occursIn(right, subst)) {
                 return Option.none();
             } else {
@@ -621,20 +472,19 @@ public class Logish {
     }
 
     public static Stream<Object> run(Function<Var, Goal> body) {
-        final Var q = new Var(0);
-        final Subst subst0 = Subst.empty().put(q.index, q);
+        final Var q = new Var();
+        final Subst subst0 = Subst.empty();
         return Stream.ofAll(body.apply(q).apply(subst0)).map(subst -> walkDeep(q, subst));
     }
 
-    static Tuple2<Map<String, List<Constraint>>, SortedSet<Integer>> augmentConstraints(int varSeq,
-                                                                                        Subst subst,
-                                                                                        Map<String, List<Constraint>> start) {
-        Object attributes = subst.lookup(-varSeq - 1);
-        if (attributes == null) return Tuple.of(start, TreeSet.empty());
+    static Tuple2<Map<String, List<Constraint>>, IdentityMap<Var, Object>> augmentConstraints(Var v,
+                                                                                              Subst subst,
+                                                                                              Map<String, List<Constraint>> start) {
+        Map<String, Attribute> attributes = subst.lookupAttribute(v);
+        if (attributes == null) return Tuple.of(start, IdentityMap.empty());
         Map<String, List<Constraint>> constraints = start;
-        SortedSet<Integer> otherVars = TreeSet.empty();
-        //noinspection unchecked
-        for (final Tuple2<String, Attribute> entry : (Map<String, Attribute>) attributes) {
+        IdentityMap<Var, Object> otherVars = IdentityMap.empty();
+        for (final Tuple2<String, Attribute> entry : attributes) {
             final String domain = entry._1;
             final Option<List<Constraint>> seen = start.get(domain);
             List<Constraint> update = seen.isEmpty() ? null : seen.get();
@@ -643,7 +493,7 @@ public class Logish {
                 if (seen.isEmpty() || !seen.get().contains(c)) {
                     update = (update == null ? List.of(c) : update.prepend(c));
                     updated = true;
-                    otherVars = otherVars.union(varIndices(walkDeep(c.symbolicRepr(), subst)).remove(varSeq));
+                    otherVars = otherVars.withAll(varIndices(walkDeep(c.symbolicRepr(), subst)).without(v));
                 }
             }
             if (updated) constraints = constraints.put(domain, update);
@@ -653,25 +503,26 @@ public class Logish {
 
     static Map<String, List<Constraint>> collectConstraints(Object o, Subst subst) {
         Map<String, List<Constraint>> result = TreeMap.empty();
-        SortedSet<Integer> varsToGo = varIndices(o);
-        SortedSet<Integer> seenVars = TreeSet.empty();
+        IdentityMap<Var, Object> varsToGo = varIndices(o);
+        IdentityMap<Var, Object> seenVars = IdentityMap.empty();
         while (!varsToGo.isEmpty()) {
-            SortedSet<Integer> otherVars = TreeSet.empty();
-            for (final Integer varSeq : varsToGo) {
-                final Tuple2<Map<String, List<Constraint>>, SortedSet<Integer>> step =
-                        augmentConstraints(varSeq, subst, result);
+            IdentityMap<Var, Object> otherVars = IdentityMap.empty();
+            for (final java.util.Map.Entry<Var, Object> entry : varsToGo) {
+                final Var v = entry.getKey();
+                final Tuple2<Map<String, List<Constraint>>, IdentityMap<Var, Object>> step =
+                        augmentConstraints(v, subst, result);
                 result = step._1;
-                otherVars = otherVars.union(step._2);
+                otherVars = otherVars.withAll(step._2);
             }
-            seenVars = seenVars.union(varsToGo);
-            varsToGo = otherVars.diff(seenVars);
+            seenVars = seenVars.withAll(varsToGo);
+            varsToGo = otherVars.withoutAllKeys(seenVars);
         }
         return result;
     }
 
     public static Stream<Tuple2<Object, List<Cons>>> runC(Function<Var, Goal> body) {
-        final Var q = new Var(0);
-        final Subst subst0 = Subst.empty().put(0, q);
+        final Var q = new Var();
+        final Subst subst0 = Subst.empty();
         return Stream.ofAll(body.apply(q).apply(subst0)).map(subst -> {
             Object o = walkDeep(q, subst);
             return Tuple.of(o, collectConstraints(o, subst).toList()
@@ -684,6 +535,7 @@ public class Logish {
 //        Series<Subst> apply(Subst subst);
     }
 
+    @SuppressWarnings("unused")
     public static class StdGoals {
 
 
@@ -724,25 +576,6 @@ public class Logish {
             @Override
             public Series<Subst> apply(Subst subst) {
                 return Series.appendInf(first.apply(subst), second.apply(subst));
-            }
-        }
-
-        static class ParDisj implements Goal {
-            final Executor executor;
-            final Goal first, second;
-
-            public ParDisj(Executor executor, Goal first, Goal second) {
-                this.executor = executor;
-                this.first = first;
-                this.second = second;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final CompletableFuture<Series<Subst>> secondFuture =
-                        (executor == null ? CompletableFuture.supplyAsync(() -> second.apply(subst))
-                                : CompletableFuture.supplyAsync(() -> second.apply(subst), executor));
-                return Series.appendInf(first.apply(subst), Series.future(secondFuture));
             }
         }
 
@@ -791,160 +624,74 @@ public class Logish {
             return par(null, goals);
         }
 
+        static class ParDisj implements Goal {
+            final Executor executor;
+            final Goal first, second;
 
-        static class Unify implements Goal {
-            final Object left, right;
-
-            Unify(Object left, Object right) {
-                this.left = left;
-                this.right = right;
+            public ParDisj(Executor executor, Goal first, Goal second) {
+                this.executor = executor;
+                this.first = first;
+                this.second = second;
             }
 
             @Override
             public Series<Subst> apply(Subst subst) {
+                final CompletableFuture<Series<Subst>> secondFuture =
+                        (executor == null ? CompletableFuture.supplyAsync(() -> second.apply(subst))
+                                : CompletableFuture.supplyAsync(() -> second.apply(subst), executor));
+                return Series.appendInf(first.apply(subst), Series.future(secondFuture));
+            }
+        }
+
+        public static Goal unify(Object left, Object right) {
+            return subst -> {
                 final Option<Subst> result = Logish.unify(left, right, subst);
                 if (result.isEmpty()) {
                     return Series.empty();
                 } else {
                     return Series.singleton(result.get());
                 }
-            }
+            };
         }
 
-        public static Goal unify(Object left, Object right) {
-            return new Unify(left, right);
+        public static Goal equals(Object left, Object right) {
+            return subst -> Objects.equals(walk(left, subst), walk(right, subst)) ? Series.singleton(subst) : Series.empty();
         }
 
-        static class Equals implements Goal {
-            final Object left, right;
-
-            Equals(Object left, Object right) {
-                this.left = left;
-                this.right = right;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                return Objects.equals(walk(left, subst), walk(right, subst)) ? Series.singleton(subst) : Series.empty();
-            }
+        public static Goal same(Object left, Object right) {
+            return subst -> walk(left, subst) == walk(right, subst) ? Series.singleton(subst) : Series.empty();
         }
 
-        public static Goal equals(Object x, Object y) {
-            return new Equals(x, y);
-        }
-
-        static class Same implements Goal {
-            final Object left, right;
-
-            Same(Object left, Object right) {
-                this.left = left;
-                this.right = right;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                return walk(left, subst) == walk(right, subst) ? Series.singleton(subst) : Series.empty();
-            }
-        }
-
-        public static Goal same(Object x, Object y) {
-            return new Same(x, y);
-        }
-
-
-        static class Not implements Goal {
-            final Goal goal;
-
-            Not(Goal goal) {
-                this.goal = goal;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Series<Subst> result = goal.apply(subst).forceDeep();
-                return result.isEmpty() ? Series.singleton(subst) : Series.empty();
-            }
-        }
 
         public static Goal not(Goal goal) {
-//            return new Not(goal);
-            return (Subst subst) -> {
+            return subst -> {
                 final Series<Subst> result = goal.apply(subst).forceDeep();
                 return result.isEmpty() ? Series.singleton(subst) : Series.empty();
             };
         }
 
-        static class Fresh1 implements Goal {
-            final Function1<Var, Goal> body;
-
-            Fresh1(Function1<Var, Goal> body) {
-                this.body = body;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final int nextVar = subst.nextVarIndex();
-                final Var v1 = new Var(nextVar);
-                return body.apply(v1).apply(subst.put(nextVar, v1));
-            }
-        }
-
-        static class Fresh2 implements Goal {
-            final Function2<Var, Var, Goal> body;
-
-            Fresh2(Function2<Var, Var, Goal> body) {
-                this.body = body;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final int nextVar = subst.nextVarIndex();
-                final Var v1 = new Var(nextVar);
-                final Var v2 = new Var(nextVar + 1);
-                return body.apply(v1, v2).apply(subst.put(nextVar, v1).put(nextVar + 1, v2));
-            }
-        }
-
-        static class Fresh3 implements Goal {
-            final Function3<Var, Var, Var, Goal> body;
-
-            Fresh3(Function3<Var, Var, Var, Goal> body) {
-                this.body = body;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final int nextVar = subst.nextVarIndex();
-                final Var v1 = new Var(nextVar);
-                final Var v2 = new Var(nextVar + 1);
-                final Var v3 = new Var(nextVar + 2);
-                return body.apply(v1, v2, v3).apply(subst.put(nextVar, v1)
-                        .put(nextVar + 1, v2).put(nextVar + 2, v3));
-            }
-        }
-
         public static Goal fresh(Function1<Var, Goal> body) {
-            return new Fresh1(body);
+            return subst -> body.apply(new Var()).apply(subst);
         }
 
         public static Goal fresh(Function2<Var, Var, Goal> body) {
-            return new Fresh2(body);
+            return subst -> body.apply(new Var(), new Var()).apply(subst);
         }
 
         public static Goal fresh(Function3<Var, Var, Var, Goal> body) {
-            return new Fresh3(body);
+            return subst -> body.apply(new Var(), new Var(), new Var()).apply(subst);
         }
 
         public static Goal fresh(Function4<Var, Var, Var, Var, Goal> body) {
-            return new Fresh3((v1, v2, v3) -> fresh(v4 -> body.apply(v1, v2, v3, v4)));
+            return subst -> body.apply(new Var(), new Var(), new Var(), new Var()).apply(subst);
         }
 
         public static Goal fresh(Function5<Var, Var, Var, Var, Var, Goal> body) {
-            return new Fresh3((v1, v2, v3) -> fresh((v4, v5) -> body.apply(v1, v2, v3, v4, v5)));
+            return subst -> body.apply(new Var(), new Var(), new Var(), new Var(), new Var()).apply(subst);
         }
 
         public static Goal fresh(Function6<Var, Var, Var, Var, Var, Var, Goal> body) {
-            return new Fresh3((v1, v2, v3) -> fresh((v4, v5, v6) -> body.apply(v1, v2, v3, v4, v5, v6)));
+            return subst -> body.apply(new Var(), new Var(), new Var(), new Var(), new Var(), new Var()).apply(subst);
         }
 
         public static Goal consO(Object x, Object y, Object z) {
@@ -979,49 +726,23 @@ public class Logish {
             ));
         }
 
-        static class Ifte implements Goal {
-            final Goal question;
-            final Supplier<Goal> thenBranch;
-            final Supplier<Goal> elseBranch;
-
-            Ifte(Goal question, Supplier<Goal> thenBranch, Supplier<Goal> elseBranch) {
-                this.question = question;
-                this.thenBranch = thenBranch;
-                this.elseBranch = elseBranch;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
+        public static Goal ifte(Goal question, Supplier<Goal> thenBranch, Supplier<Goal> elseBranch) {
+            return subst -> {
                 final Series<Subst> questionResult = question.apply(subst).forceDeep();
                 if (questionResult.isEmpty()) {
                     return elseBranch.get().apply(subst);
                 } else {
                     return Series.appendMapInf(thenBranch.get(), questionResult);
                 }
-            }
-        }
-
-        public static Goal ifte(Goal question, Supplier<Goal> thenBranch, Supplier<Goal> elseBranch) {
-            return new Ifte(question, thenBranch, elseBranch);
-        }
-
-        static class Once implements Goal {
-            final Goal goal;
-
-            Once(Goal goal) {
-                this.goal = goal;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Series<Subst> result = goal.apply(subst).forceDeep();
-                if (result.isEmpty()) return result;
-                else return Series.singleton(result.head());
-            }
+            };
         }
 
         public static Goal once(Goal goal) {
-            return new Once(goal);
+            return subst -> {
+                final Series<Subst> result = goal.apply(subst).forceDeep();
+                if (result.isEmpty()) return result;
+                else return Series.singleton(result.head());
+            };
         }
 
         public static class Clause {
@@ -1070,401 +791,143 @@ public class Logish {
             return delayed(current);
         }
 
-        static class Free implements Goal {
-            final Object x;
-
-            Free(Object x) {
-                this.x = x;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                return walk(x, subst) instanceof Var ? Series.singleton(subst) : Series.empty();
-            }
-        }
-
+        /**
+         * Succeeds if the parameter is a free variable.
+         *
+         * @param x
+         * @return
+         */
         public static Goal free(Object x) {
-            return new Free(x);
-        }
-
-        static class Test0 implements Goal {
-            final Function0<Boolean> test;
-
-            Test0(Function0<Boolean> test) {
-                this.test = test;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                return test.apply() ? Series.singleton(subst) : Series.empty();
-            }
-        }
-
-        static class Test1<T> implements Goal {
-            final Class<T> clazz;
-            final Object x;
-            final Function1<T, Boolean> test;
-
-            Test1(Class<T> clazz, Object x, Function1<T, Boolean> test) {
-                this.clazz = clazz;
-                this.x = x;
-                this.test = test;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Object deref = walk(x, subst);
-                return clazz.isInstance(deref) && test.apply(clazz.cast(deref)) ? Series.singleton(subst) : Series.empty();
-            }
-        }
-
-        static class Test2<T1, T2> implements Goal {
-            final Class<T1> clazzX;
-            final Object x;
-            final Class<T2> clazzY;
-            final Object y;
-            final Function2<T1, T2, Boolean> test;
-
-            Test2(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Function2<T1, T2, Boolean> test) {
-                this.clazzX = clazzX;
-                this.x = x;
-                this.clazzY = clazzY;
-                this.y = y;
-                this.test = test;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Object derefX = walk(x, subst);
-                final Object derefY = walk(y, subst);
-                return clazzX.isInstance(derefX) && clazzY.isInstance(derefY) &&
-                        test.apply(clazzX.cast(derefX), clazzY.cast(derefY)) ? Series.singleton(subst) : Series.empty();
-            }
-        }
-
-        static class Test3<T1, T2, T3> implements Goal {
-            final Class<T1> clazzX;
-            final Object x;
-            final Class<T2> clazzY;
-            final Object y;
-            final Class<T3> clazzZ;
-            final Object z;
-            final Function3<T1, T2, T3, Boolean> test;
-
-            Test3(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Class<T3> clazzZ, Object z,
-                  Function3<T1, T2, T3, Boolean> test) {
-                this.clazzX = clazzX;
-                this.x = x;
-                this.clazzY = clazzY;
-                this.y = y;
-                this.clazzZ = clazzZ;
-                this.z = z;
-                this.test = test;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Object derefX = walk(x, subst);
-                final Object derefY = walk(y, subst);
-                final Object derefZ = walk(z, subst);
-                return clazzX.isInstance(derefX) && clazzY.isInstance(derefY) && clazzZ.isInstance(derefZ) &&
-                        test.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ)) ?
-                        Series.singleton(subst) : Series.empty();
-            }
+            return subst -> walk(x, subst) instanceof Var ? Series.singleton(subst) : Series.empty();
         }
 
         public static Goal test(Function0<Boolean> test) {
-            return new Test0(test);
+            return subst -> test.apply() ? Series.singleton(subst) : Series.empty();
         }
 
         public static <T> Goal test(Class<T> clazz, Object x, Function1<T, Boolean> test) {
-            return new Test1<>(clazz, x, test);
+            return subst -> {
+                final Object deref = walk(x, subst);
+                return clazz.isInstance(deref) && test.apply(clazz.cast(deref)) ? Series.singleton(subst) : Series.empty();
+            };
         }
 
         public static <T> Goal test(Class<T> clazz, Var x) {
-            return new Test1<>(clazz, x, v -> true);
+            return subst -> {
+                final Object deref = walk(x, subst);
+                return clazz.isInstance(deref) ? Series.singleton(subst) : Series.empty();
+            };
         }
 
         public static <T1, T2> Goal test(Class<T1> clazzX, Var x,
                                          Class<T2> clazzY, Var y,
                                          Function2<T1, T2, Boolean> test) {
-            return new Test2<>(clazzX, x, clazzY, y, test);
-        }
-
-        public static <T> Goal test(Class<T> clazz, Var x, Var y,
-                                    Function2<T, T, Boolean> test) {
-            return new Test2<>(clazz, x, clazz, y, test);
+            return subst -> {
+                final Object derefX = walk(x, subst), derefY = walk(y, subst);
+                return clazzX.isInstance(derefX) && clazzY.isInstance(derefY) &&
+                        test.apply(clazzX.cast(x), clazzY.cast(y)) ? Series.singleton(subst) : Series.empty();
+            };
         }
 
         public static <T1, T2, T3> Goal test(Class<T1> clazzX, Var x,
                                              Class<T2> clazzY, Var y,
                                              Class<T3> clazzZ, Var z,
                                              Function3<T1, T2, T3, Boolean> test) {
-            return new Test3<>(clazzX, x, clazzY, y, clazzZ, z, test);
+            return subst -> {
+                final Object derefX = walk(x, subst), derefY = walk(y, subst), derefZ = walk(z, subst);
+                return clazzX.isInstance(derefX) && clazzY.isInstance(derefY) &&
+                        clazzZ.isInstance(derefZ) &&
+                        test.apply(clazzX.cast(x), clazzY.cast(y), clazzZ.cast(z)) ? Series.singleton(subst) : Series.empty();
+            };
         }
 
-        public static <T> Goal test(Class<T> clazz, Var x, Var y, Var z,
-                                    Function3<T, T, T, Boolean> test) {
-            return new Test3<>(clazz, x, clazz, y, clazz, z, test);
-        }
-
-        static class Side0 implements Goal {
-            final Function0<Void> action;
-
-            Side0(Function0<Void> action) {
-                this.action = action;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                action.apply();
-                return Series.singleton(subst);
-            }
-        }
-
-        static class Side1<T> implements Goal {
-            final Class<T> clazz;
-            final Object x;
-            final Function1<T, Void> action;
-
-            Side1(Class<T> clazz, Object x, Function1<T, Void> action) {
-                this.clazz = clazz;
-                this.x = x;
-                this.action = action;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Object deref = walk(x, subst);
-                action.apply(clazz.cast(deref));
-                return Series.singleton(subst);
-            }
-        }
-
-        static class Side2<T1, T2> implements Goal {
-            final Class<T1> clazzX;
-            final Object x;
-            final Class<T2> clazzY;
-            final Object y;
-            final Function2<T1, T2, Void> action;
-
-            Side2(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Function2<T1, T2, Void> action) {
-                this.clazzX = clazzX;
-                this.x = x;
-                this.clazzY = clazzY;
-                this.y = y;
-                this.action = action;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Object derefX = walk(x, subst);
-                final Object derefY = walk(y, subst);
-                action.apply(clazzX.cast(derefX), clazzY.cast(derefY));
-                return Series.singleton(subst);
-            }
-        }
-
-        static class Side3<T1, T2, T3> implements Goal {
-            final Class<T1> clazzX;
-            final Object x;
-            final Class<T2> clazzY;
-            final Object y;
-            final Class<T3> clazzZ;
-            final Object z;
-            final Function3<T1, T2, T3, Void> action;
-
-            Side3(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Class<T3> clazzZ, Object z,
-                  Function3<T1, T2, T3, Void> test) {
-                this.clazzX = clazzX;
-                this.x = x;
-                this.clazzY = clazzY;
-                this.y = y;
-                this.clazzZ = clazzZ;
-                this.z = z;
-                this.action = test;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Object derefX = walk(x, subst);
-                final Object derefY = walk(y, subst);
-                final Object derefZ = walk(z, subst);
-                action.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ));
-                return Series.singleton(subst);
-            }
+        public static <T> Goal test(Class<T> clazzXYZ, Var x, Var y, Var z,
+                                    Function3<T, T, T, Boolean>test) {
+            return subst -> {
+                final Object derefX = walk(x, subst), derefY = walk(y, subst), derefZ = walk(z, subst);
+                return clazzXYZ.isInstance(derefX) && clazzXYZ.isInstance(derefY) &&
+                        clazzXYZ.isInstance(derefZ) &&
+                        test.apply(clazzXYZ.cast(x), clazzXYZ.cast(y), clazzXYZ.cast(z)) ? Series.singleton(subst) : Series.empty();
+            };
         }
 
         public static Goal side(Function0<Void> action) {
-            return new Side0(action);
+            return subst -> {
+                action.apply();
+                return Series.singleton(subst);
+            };
         }
 
-        public static <T> Goal side(Class<T> clazz, Object x, Function1<T, Void> test) {
-            return new Side1<>(clazz, x, test);
+        public static <T> Goal side(Class<T> clazz, Object x, Function1<T, Void> action) {
+            return subst -> {
+                final Object derefX = walk(x, subst);
+                if (!clazz.isInstance(derefX)) return Series.empty();
+                action.apply(clazz.cast(derefX));
+                return Series.singleton(subst);
+            };
         }
 
         public static <T1, T2> Goal side(Class<T1> clazzX, Var x,
                                          Class<T2> clazzY, Var y,
-                                         Function2<T1, T2, Void> test) {
-            return new Side2<>(clazzX, x, clazzY, y, test);
-        }
-
-        public static <T> Goal side(Class<T> clazz, Var x, Var y,
-                                    Function2<T, T, Void> test) {
-            return new Side2<>(clazz, x, clazz, y, test);
+                                         Function2<T1, T2, Void> action) {
+            return subst -> {
+                final Object derefX = walk(x, subst), derefY = walk(y, subst);
+                if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY)) return Series.empty();
+                action.apply(clazzX.cast(derefX), clazzY.cast(derefY));
+                return Series.singleton(subst);
+            };
         }
 
         public static <T1, T2, T3> Goal side(Class<T1> clazzX, Var x,
                                              Class<T2> clazzY, Var y,
                                              Class<T3> clazzZ, Var z,
-                                             Function3<T1, T2, T3, Void> test) {
-            return new Side3<>(clazzX, x, clazzY, y, clazzZ, z, test);
-        }
-
-        public static <T> Goal side(Class<T> clazz, Var x, Var y, Var z,
-                                    Function3<T, T, T, Void> test) {
-            return new Side3<>(clazz, x, clazz, y, clazz, z, test);
-        }
-
-        static class Map0 implements Goal {
-            final Function0<Object> f;
-            final Object w;
-
-            Map0(Function0<Object> f, Object w) {
-                this.f = f;
-                this.w = w;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Option<Subst> result = Logish.unify(w, f.apply(), subst);
-                return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
-            }
-        }
-
-        static class Map1<T> implements Goal {
-            final Class<T> clazz;
-            final Object x;
-            final Function1<T, Object> f;
-            final Object w;
-
-            Map1(Class<T> clazz, Object x, Function1<T, Object> f, Object w) {
-                this.clazz = clazz;
-                this.x = x;
-                this.f = f;
-                this.w = w;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Object deref = walk(x, subst);
-                if (!clazz.isInstance(deref)) return Series.empty();
-                final Option<Subst> result = Logish.unify(w, f.apply(clazz.cast(deref)), subst);
-                return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
-            }
-        }
-
-        static class Map2<T1, T2> implements Goal {
-            final Class<T1> clazzX;
-            final Object x;
-            final Class<T2> clazzY;
-            final Object y;
-            final Function2<T1, T2, Object> f;
-            final Object w;
-
-            Map2(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Function2<T1, T2, Object> f, Object w) {
-                this.clazzX = clazzX;
-                this.x = x;
-                this.clazzY = clazzY;
-                this.y = y;
-                this.f = f;
-                this.w = w;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Object derefX = walk(x, subst);
-                final Object derefY = walk(y, subst);
-                if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY)) return Series.empty();
-                final Option<Subst> result =
-                        Logish.unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY)), subst);
-                return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
-            }
-        }
-
-        static class Map3<T1, T2, T3> implements Goal {
-            final Class<T1> clazzX;
-            final Object x;
-            final Class<T2> clazzY;
-            final Object y;
-            final Class<T3> clazzZ;
-            final Object z;
-            final Function3<T1, T2, T3, Object> f;
-            final Object w;
-
-            Map3(Class<T1> clazzX, Object x, Class<T2> clazzY, Object y, Class<T3> clazzZ, Object z,
-                 Function3<T1, T2, T3, Object> f, Object w) {
-                this.clazzX = clazzX;
-                this.x = x;
-                this.clazzY = clazzY;
-                this.y = y;
-                this.clazzZ = clazzZ;
-                this.z = z;
-                this.f = f;
-                this.w = w;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
-                final Object derefX = walk(x, subst);
-                final Object derefY = walk(y, subst);
-                final Object derefZ = walk(z, subst);
-                if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY) ||
-                        !clazzZ.isInstance(derefZ)) return Series.empty();
-                final Option<Subst> result =
-                        Logish.unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ)), subst);
-                return result.isEmpty() ? Series.empty() : Series.singleton(result.get());
-            }
+                                             Function3<T1, T2, T3, Void> action) {
+            return subst -> {
+                final Object derefX = walk(x, subst), derefY = walk(y, subst), derefZ = walk(z, subst);
+                if (!clazzX.isInstance(derefX) || !clazzY.isInstance(derefY) || !clazzZ.isInstance(derefZ))
+                    return Series.empty();
+                action.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ));
+                return Series.singleton(subst);
+            };
         }
 
         public static Goal map(Function0<Object> f, Object w) {
-            return new Map0(f, w);
+            return unify(w, f.apply());
         }
 
-        public static <T> Goal map(Class<T> clazz, Var x, Function1<T, Object> f, Object w) {
-            return new Map1<>(clazz, x, f, w);
+        public static <T> Goal map(Class<T> clazzX, Var x, Function1<T, Object> f, Object w) {
+            return subst -> {
+                final Object derefX = walk(x, subst);
+                if (!clazzX.isInstance(x)) return Series.empty();
+                return unify(w, f.apply(clazzX.cast(derefX))).apply(subst);
+            };
         }
 
         public static <T1, T2> Goal map(Class<T1> clazzX, Var x, Class<T2> clazzY, Var y,
                                         Function2<T1, T2, Object> f, Object w) {
-            return new Map2<>(clazzX, x, clazzY, y, f, w);
+            return subst -> {
+                final Object derefX = walk(x, subst), derefY = walk(y, subst);
+                if (!clazzX.isInstance(x) || !clazzY.isInstance(y)) return Series.empty();
+                return unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY))).apply(subst);
+            };
         }
 
         public static <T1, T2, T3> Goal map(Class<T1> clazzX, Var x, Class<T2> clazzY, Var y,
                                             Class<T3> clazzZ, Var z,
                                             Function3<T1, T2, T3, Object> f, Object w) {
-            return new Map3<>(clazzX, x, clazzY, y, clazzZ, z, f, w);
+            return subst -> {
+                final Object derefX = walk(x, subst), derefY = walk(y, subst), derefZ = walk(z, subst);
+                if (!clazzX.isInstance(x) || !clazzY.isInstance(y) || !clazzZ.isInstance(derefZ)) return Series.empty();
+                return unify(w, f.apply(clazzX.cast(derefX), clazzY.cast(derefY), clazzZ.cast(derefZ))).apply(subst);
+            };
         }
 
-        static class Element implements Goal {
-            final Object x;
-            final Seq<?> sequence;
-
-            Element(Object x, Seq<?> sequence) {
-                this.x = x;
-                this.sequence = sequence;
-            }
-
-            @Override
-            public Series<Subst> apply(Subst subst) {
+        public static Goal element(Object x, Seq<?> sequence) {
+            return subst -> {
                 if (sequence.isEmpty()) return Series.empty();
                 return choice(unify(x, sequence.head()),
-                        delayed(() -> new Element(x, sequence.tail()))).apply(subst);
-            }
-        }
-
-        public static Goal element(Object x, Seq<?> seq) {
-            return new Element(x, seq);
+                        delayed(() -> element(x, sequence.tail()))).apply(subst);
+            };
         }
 
     }

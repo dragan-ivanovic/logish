@@ -4,7 +4,6 @@ import io.vavr.*;
 import io.vavr.collection.*;
 import io.vavr.collection.HashSet;
 import io.vavr.collection.List;
-import io.vavr.collection.Map;
 import io.vavr.collection.Set;
 import io.vavr.collection.SortedMap;
 import io.vavr.collection.SortedSet;
@@ -14,6 +13,7 @@ import io.vavr.control.Option;
 import org.cellx.logish.Logish.*;
 
 import java.util.*;
+import java.util.Map;
 
 import static org.cellx.logish.Logish.*;
 import static org.cellx.logish.Logish.StdGoals.*;
@@ -467,7 +467,7 @@ public class Fd {
 
             final Domain newConstraint;
             final Var v = (Var) o;
-            final Option<Attribute> optOldDomain = getAttribute(v, subst, DOM_DOMAIN);
+            final Option<Attribute> optOldDomain = subst.getAttribute(v, DOM_DOMAIN);
             final Subst subst1;
             if (optOldDomain.isEmpty()) {
                 newConstraint = domain;
@@ -549,7 +549,7 @@ public class Fd {
          */
         Set<Var> vars();
 
-        void maybeAddToAgenda(Solver solver, int varIndex, Domain dom);
+        void maybeAddToAgenda(Solver solver, Var v, Domain dom);
 
         /**
          * Tries to propagate the constraint.
@@ -599,21 +599,21 @@ public class Fd {
         /**
          * Mapping from variable indices to lists of constraints that subscribe to these variables.
          */
-        Map<Integer, List<FdConstraint>> varConstraints = emptyMap();
+        IdentityMap<Var, List<FdConstraint>> varConstraints = IdentityMap.empty();
 
         /**
          * Returns the list of constraints that subscribe to the variable with the given index.
          *
-         * @param varIndex The variable index
+         * @param v The variable
          * @return The list of constraints subscribing to the changes in the given variable's domain
          */
-        List<FdConstraint> getConstraints(int varIndex) {
-            final Option<List<FdConstraint>> optConstraints = varConstraints.get(varIndex);
+        List<FdConstraint> getConstraints(Var v) {
+            final Option<List<FdConstraint>> optConstraints = varConstraints.get(v);
             if (!optConstraints.isEmpty()) return optConstraints.get();
-            final List<FdConstraint> result = getAttribute(varIndex, subst, ARI_DOMAIN)
+            final List<FdConstraint> result = subst.getAttribute(v, ARI_DOMAIN)
                     .map(a -> ((FdAttribute) a).constraints)
                     .getOrElse(List.empty());
-            varConstraints = varConstraints.put(varIndex, result);
+            varConstraints = varConstraints.with(v, result);
             return result;
         }
 
@@ -624,10 +624,10 @@ public class Fd {
          * @return true
          */
         boolean subscribe(FdConstraint c) {
-            for (final int varSeq : c.vars().map(v -> walkVar(v, subst).index)) {
-                final List<FdConstraint> cs = getConstraints(varSeq);
+            for (final Var v : c.vars().map(v -> walkVar(v, subst))) {
+                final List<FdConstraint> cs = getConstraints(v);
                 if (!cs.contains(c)) {
-                    varConstraints = varConstraints.put(varSeq, cs.prepend(c));
+                    varConstraints = varConstraints.with(v, cs.prepend(c));
                 }
             }
             return true;
@@ -639,21 +639,17 @@ public class Fd {
          * @param c the constraint to unregister
          */
         void unsubscribe(FdConstraint c) {
-            for (final int varSeq : c.vars().map(v -> walkVar(v, subst).index)) {
-                varConstraints = varConstraints.put(varSeq, getConstraints(varSeq).remove(c));
+            for (final Var v: c.vars().map(v -> walkVar(v, subst))) {
+                varConstraints = varConstraints.with(v, getConstraints(v).remove(c));
             }
         }
 
         // ---------- Excited variables ----------
 
-        void excite(int varIndex, Domain dom) {
-            for (final FdConstraint c : getConstraints(varIndex)) {
-                c.maybeAddToAgenda(this, varIndex, dom);
-            }
-        }
-
         void excite(Var v, Domain dom) {
-            excite(walkVarIndex(v.index, subst), dom);
+            for (final FdConstraint c : getConstraints(walkVar(v, subst))) {
+                c.maybeAddToAgenda(this, v, dom);
+            }
         }
 
         // ---------- Variable Domains ------------
@@ -662,58 +658,58 @@ public class Fd {
          * <p>Each element is either a finite set of allowed integers (right), or a  finite set of excluded
          * integers (left).</p>
          */
-        Map<Integer, Domain> varDomains = emptyMap();
+        IdentityMap<Var, Domain> varDomains = IdentityMap.empty();
         /**
          * Set of variables that were already instantiated.
          */
-        Set<Integer> instantiatedVars = TreeSet.empty();
+        IdentityMap<Var, Object> instantiatedVars = IdentityMap.empty();
 
         /**
          * Gets the domain of the given variable
          *
-         * @param varIndex
+         * @param v
          * @return the variable domain
          */
-        Domain getDomain(int varIndex) {
-            final Option<Domain> optCurrent = varDomains.get(varIndex);
+        Domain getDomain(Var v) {
+            final Option<Domain> optCurrent = varDomains.get(v);
             if (!optCurrent.isEmpty()) return optCurrent.get();
-            final Object value = subst.getSome(varIndex);
+            final Object value = subst.lookup(v);
             final Domain result;
-            if (value instanceof Var) {
-                final Option<Attribute> fromSubst = getAttribute(varIndex, subst, DOM_DOMAIN);
+            if (value == null) {
+                final Option<Attribute> fromSubst = subst.getAttribute(v, DOM_DOMAIN);
                 if (fromSubst.isEmpty()) {
                     result = Domain.any();
                 } else {
                     result = ((DomainAttribute) fromSubst.get()).domain;
                 }
             } else {
-                instantiatedVars = instantiatedVars.add(varIndex);
+                instantiatedVars = instantiatedVars.with(v, Boolean.TRUE);
                 if (value instanceof Integer) {
                     result = Subset.of((Integer) value);
                 } else {
                     result = Domain.any();
                 }
             }
-            varDomains = varDomains.put(varIndex, result);
+            varDomains = varDomains.with(v, result);
             return result;
         }
 
 
-        boolean reduceDomain(int varIndex, int solution) {
-            return reduceDomain(varIndex, TreeSet.of(solution));
+        boolean reduceDomain(Var v, int solution) {
+            return reduceDomain(v, TreeSet.of(solution));
         }
 
-        boolean reduceDomain(int varIndex, SortedSet<Integer> values) {
-            return reduceDomain(varIndex, Domain.of(values));
+        boolean reduceDomain(Var v, SortedSet<Integer> values) {
+            return reduceDomain(v, Domain.of(values));
         }
 
-        boolean reduceDomain(int varIndex, Domain dom) {
-            final Domain dom0 = getDomain(varIndex);
+        boolean reduceDomain(Var v, Domain dom) {
+            final Domain dom0 = getDomain(v);
             final Domain dom1 = dom0.intersect(dom);
             if (dom1.isEmpty()) return false;
             if (dom0.isSubsetOf(dom1)) return true;
-            varDomains = varDomains.put(varIndex, dom1);
-            excite(varIndex, dom);
+            varDomains = varDomains.with(v, dom1);
+            excite(v, dom);
             return true;
         }
 
@@ -776,7 +772,7 @@ public class Fd {
         static Option<Subst> instantiate(Var v, int x, Subst subst) {
             final Solver solver = new Solver(subst);
             final Var walked = walkVar(v, subst);
-            if (!solver.reduceDomain(walked.index, Subset.of(x)))
+            if (!solver.reduceDomain(walked, Subset.of(x)))
                 return Option.none();
             return solver.solution();
         }
@@ -784,7 +780,7 @@ public class Fd {
         static Option<Subst> addDomain(DomainAttribute da, Subst subst) {
             final Solver solver = new Solver(subst);
             final Var walked = walkVar(da.variable, subst);
-            if (!solver.reduceDomain(walked.index, da.domain))
+            if (!solver.reduceDomain(walked, da.domain))
                 return Option.none();
             return solver.solution();
         }
@@ -799,18 +795,18 @@ public class Fd {
         Logish.Series<Subst> label(Set<Var> vars) {
             if (!getToFixpoint()) return Series.empty();
             final List<Tuple4<Var, Domain, Integer, Integer>> candidates =
-                    vars.map(v -> walkVar(v, subst)).toList().map(v -> Tuple.of(v, getDomain(v.index)))
+                    vars.map(v -> walkVar(v, subst)).toList().map(v -> Tuple.of(v, getDomain(v)))
                             .filter(t -> (t._2.isBounded() || isDefinite(t._2)) && !hasSolution(t._2))
-                            .map(t -> Tuple.of(t._1, t._2, t._2.size(), getConstraints(t._1.index).length()))
+                            .map(t -> Tuple.of(t._1, t._2, t._2.size(), getConstraints(t._1).length()))
                             .sorted((t1, t2) -> t1._3.equals(t2._3) ? t2._4 - t1._4 : t1._3 - t2._3);
             if (candidates.exists(t -> t._3 == 0)) return Series.empty();
             if (candidates.isEmpty()) return Series.of(solution());
             final Tuple4<Var, Domain, Integer, Integer> chosen = candidates.head();
             final Tuple2<Domain, Domain> bisected = chosen._2.bisect();
             final Solver branch = duplicate();
-            reduceDomain(chosen._1.index, bisected._1);
+            reduceDomain(chosen._1, bisected._1);
             return Series.appendInf(label(vars), Series.suspension(() -> {
-                branch.reduceDomain(chosen._1.index, bisected._2);
+                branch.reduceDomain(chosen._1, bisected._2);
                 return branch.label(vars);
             }));
         }
@@ -841,36 +837,37 @@ public class Fd {
 
             Subst result = subst;
 
-            final Map<Integer, Integer> solved =
+            final IdentityMap<Var, Integer> solved =
                     varDomains.filter(t -> hasSolution(t._2)).mapValues(d -> d.get().head());
 
             // Remove domain and ari constraint from the solved variables
-            for (final int varSeq : solved.keysIterator()) {
-                result = removeAttribute(varSeq, removeAttribute(varSeq, result, ARI_DOMAIN), DOM_DOMAIN);
+            for (final Var v : solved.keysIterable()) {
+                result = result.removeAttribute(v,ARI_DOMAIN).removeAttribute(v, DOM_DOMAIN);
             }
 
             // Set domains for unsolved variables
-            for (final int varSeq : varDomains.keysIterator()) {
-                if (solved.containsKey(varSeq)) continue;
-                final Domain d = varDomains.get(varSeq).get();
-                result = setAttribute(varSeq, result, DOM_DOMAIN, new DomainAttribute(new Var(varSeq), d));
+            for (final Var v : varDomains.keysIterable()) {
+                if (solved.contains(v)) continue;
+                final Domain d = varDomains.get(v).get();
+                result = result.setAttribute(v,  DOM_DOMAIN, new DomainAttribute(v, d));
             }
 
             // Set arithmetic constraints for unsolved variables
-            for (final int varSeq : varConstraints.keysIterator()) {
-                if (solved.containsKey(varSeq)) continue;
-                final List<FdConstraint> cs = varConstraints.get(varSeq).get();
+            for (final Var v : varConstraints.keysIterable()) {
+                if (solved.contains(v)) continue;
+                final List<FdConstraint> cs = varConstraints.get(v).get();
                 if (cs.isEmpty()) {
-                    result = removeAttribute(varSeq, result, ARI_DOMAIN);
+                    result = result.removeAttribute(v,  ARI_DOMAIN);
                 } else {
-                    result = setAttribute(varSeq, result, ARI_DOMAIN, new FdAttribute(cs));
+                    result = result.setAttribute(v, ARI_DOMAIN, new FdAttribute(cs));
                 }
             }
 
             // Instantiate solved variables by unifying them recursively
-            for (final Tuple2<Integer, Integer> solution : solved) {
-                if (instantiatedVars.contains(solution._1)) continue; // variable instantiated earlier
-                final Option<Subst> step = unify(new Var(solution._1), solution._2, result);
+            for (final Map.Entry<Var, Integer> solution : solved) {
+                final Var v = solution.getKey();
+                if (instantiatedVars.contains(v)) continue; // variable instantiated earlier
+                final Option<Subst> step = unify(v, solution.getValue(), result);
                 if (step.isEmpty()) return Option.none();
                 result = step.get();
             }
@@ -909,7 +906,7 @@ public class Fd {
         }
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
+        public void maybeAddToAgenda(Solver solver, Var v, Domain dom) {
             // If the domain of either x or z has become definite, schedule the propagator to replace
             // itself with more precise PlusVCV_X
             if (isDefinite(dom)) {
@@ -921,13 +918,13 @@ public class Fd {
         public boolean propagate(Solver solver) {
             final Var x = walkVar(this.x, solver.subst), z = walkVar(this.z, solver.subst);
 
-            if (x.index == z.index) {
+            if (x == z) {
                 // Case x + y = x
                 return y == 0;
             }
 
-            final Domain domX = solver.getDomain(x.index),
-                    domZ = solver.getDomain(z.index);
+            final Domain domX = solver.getDomain(x),
+                    domZ = solver.getDomain(z);
 
             if (isEmpty(domX) || isEmpty(domZ)) return false;
 
@@ -935,10 +932,10 @@ public class Fd {
                 if (hasSolution(domZ)) {
                     return solution(domX) + y == solution(domZ);
                 } else {
-                    return solver.reduceDomain(z.index, solution(domX) + y);
+                    return solver.reduceDomain(z, solution(domX) + y);
                 }
             } else if (hasSolution(domZ)) {
-                return solver.reduceDomain(x.index, solution(domZ) - y);
+                return solver.reduceDomain(x, solution(domZ) - y);
             }
 
             if (isDefinite(domX)) {
@@ -946,16 +943,16 @@ public class Fd {
                     final SortedSet<Integer> zs = domZ.get(),
                             xs2 = domX.get().filter(xx -> zs.contains(xx + y)),
                             zs2 = xs2.map(xx -> xx + y);
-                    return solver.reduceDomain(x.index, xs2) && solver.reduceDomain(z.index, zs2) &&
+                    return solver.reduceDomain(x, xs2) && solver.reduceDomain(z, zs2) &&
                             solver.subscribe(this);
                 } else if (domZ.isBounded()) {
                     final int minZ = domZ.getLowerBound(), maxZ = domZ.getUpperBound();
                     final SortedSet<Integer> xs2 = domX.get().filter(xx -> minZ <= xx + y && xx + y <= maxZ),
                             zs2 = xs2.map(xx -> xx + y);
-                    return solver.reduceDomain(x.index, xs2) && solver.reduceDomain(z.index, zs2) &&
+                    return solver.reduceDomain(x, xs2) && solver.reduceDomain(z, zs2) &&
                             solver.subscribe(this);
                 } else {
-                    return solver.reduceDomain(z.index, domX.get().map(xx -> xx + y)) &&
+                    return solver.reduceDomain(z, domX.get().map(xx -> xx + y)) &&
                             solver.subscribe(this);
                 }
             } else if (isDefinite(domZ)) {
@@ -963,10 +960,10 @@ public class Fd {
                     final int minX = domX.getLowerBound(), maxX = domX.getUpperBound();
                     final SortedSet<Integer> zs2 = domZ.get().filter(zz -> minX <= zz - y && zz - y <= maxX),
                             xs2 = zs2.map(zz -> zz - y);
-                    return solver.reduceDomain(x.index, xs2) && solver.reduceDomain(z.index, zs2) &&
+                    return solver.reduceDomain(x, xs2) && solver.reduceDomain(z, zs2) &&
                             solver.subscribe(this);
                 } else {
-                    return solver.reduceDomain(x.index, domZ.get().map(zz -> zz - y)) &&
+                    return solver.reduceDomain(x, domZ.get().map(zz -> zz - y)) &&
                             solver.subscribe(this);
                 }
             }
@@ -977,16 +974,16 @@ public class Fd {
                 if (domZ.isBounded()) {
                     final int minX1 = Math.max(domX.getLowerBound() + y, domZ.getLowerBound()),
                             maxX1 = Math.min(domX.getUpperBound() + y, domZ.getUpperBound());
-                    return solver.reduceDomain(x.index, Domain.of(minX1, maxX1)) &&
-                            solver.reduceDomain(z.index, Domain.of(minX1 + y, maxX1 + y)) &&
+                    return solver.reduceDomain(x, Domain.of(minX1, maxX1)) &&
+                            solver.reduceDomain(z, Domain.of(minX1 + y, maxX1 + y)) &&
                             solver.subscribe(this);
 
                 } else {
-                    return solver.reduceDomain(z.index, Domain.of(domX.getLowerBound() + y, domX.getUpperBound() + y)) &&
+                    return solver.reduceDomain(z, Domain.of(domX.getLowerBound() + y, domX.getUpperBound() + y)) &&
                             solver.subscribe(this);
                 }
             } else if (domZ.isBounded()) {
-                return solver.reduceDomain(x.index, Domain.of(domZ.getLowerBound() - y, domZ.getUpperBound() - y)) &&
+                return solver.reduceDomain(x, Domain.of(domZ.getLowerBound() - y, domZ.getUpperBound() - y)) &&
                         solver.subscribe(this);
             }
 
@@ -1021,7 +1018,7 @@ public class Fd {
         }
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
+        public void maybeAddToAgenda(Solver solver, Var v, Domain dom) {
             if (isDefinite(dom)) {
                 solver.enqueue(this, 1);
             }
@@ -1031,19 +1028,19 @@ public class Fd {
         public boolean propagate(Solver solver) {
             final Var x = walkVar(this.x, solver.subst), y = walkVar(this.y, solver.subst);
 
-            if (x.index == y.index) {
+            if (x == y) {
                 // Case: 2x = z
                 if ((z & 1) != 0) { // z is odd -> no solution
                     return false;
                 } else {
-                    return solver.reduceDomain(x.index, z / 2);
+                    return solver.reduceDomain(x, z / 2);
                 }
             }
 
             // x and y are distinct variables
 
-            final Domain domX = solver.getDomain(x.index),
-                    domY = solver.getDomain(y.index);
+            final Domain domX = solver.getDomain(x),
+                    domY = solver.getDomain(y);
 
             if (isEmpty(domX) || isEmpty(domY)) return false;
 
@@ -1051,10 +1048,10 @@ public class Fd {
                 if (hasSolution(domY)) {
                     return solution(domX) + solution(domY) == z;
                 } else {
-                    return solver.reduceDomain(y.index, z - solution(domX));
+                    return solver.reduceDomain(y, z - solution(domX));
                 }
             } else if (hasSolution(domY)) {
-                return solver.reduceDomain(x.index, z - solution(domY));
+                return solver.reduceDomain(x, z - solution(domY));
             }
 
             if (isDefinite(domX)) {
@@ -1062,25 +1059,25 @@ public class Fd {
                     final SortedSet<Integer> ys = domY.get(),
                             xs2 = domX.get().filter(xx -> ys.contains(z - xx)),
                             ys2 = xs2.map(xx -> z - xx);
-                    return solver.reduceDomain(x.index, xs2) && solver.reduceDomain(y.index, ys2) &&
+                    return solver.reduceDomain(x, xs2) && solver.reduceDomain(y, ys2) &&
                             solver.subscribe(this);
                 } else if (domY.isBounded()) {
                     final int minY = domY.getLowerBound(), maxY = domY.getUpperBound();
                     final SortedSet<Integer> xs2 = domX.get().filter(xx -> minY <= z - xx && z - xx <= maxY);
-                    return solver.reduceDomain(x.index, xs2) && solver.reduceDomain(y.index, xs2.map(xx -> z - xx)) &&
+                    return solver.reduceDomain(x, xs2) && solver.reduceDomain(y, xs2.map(xx -> z - xx)) &&
                             solver.subscribe(this);
                 } else {
-                    return solver.reduceDomain(y.index, domX.get().map(xx -> z - xx)) &&
+                    return solver.reduceDomain(y, domX.get().map(xx -> z - xx)) &&
                             solver.subscribe(this);
                 }
             } else if (isDefinite(domY)) {
                 if (domX.isBounded()) {
                     final int minX = domX.getLowerBound(), maxX = domX.getUpperBound();
                     final SortedSet<Integer> ys2 = domY.get().filter(yy -> minX <= z - yy && z - yy <= maxX);
-                    return solver.reduceDomain(x.index, ys2.map(yy -> z - yy)) && solver.reduceDomain(y.index, ys2) &&
+                    return solver.reduceDomain(x, ys2.map(yy -> z - yy)) && solver.reduceDomain(y, ys2) &&
                             solver.subscribe(this);
                 } else {
-                    return solver.reduceDomain(x.index, domY.get().map(yy -> z - yy)) &&
+                    return solver.reduceDomain(x, domY.get().map(yy -> z - yy)) &&
                             solver.subscribe(this);
                 }
 
@@ -1092,15 +1089,15 @@ public class Fd {
                 if (domY.isBounded()) {
                     final int minX2 = Math.max(domX.getLowerBound(), z - domY.getUpperBound()),
                             maxX2 = Math.min(domX.getUpperBound(), z - domY.getLowerBound());
-                    return solver.reduceDomain(x.index, Domain.of(minX2, maxX2)) &&
-                            solver.reduceDomain(y.index, Domain.of(z - maxX2, z - minX2)) &&
+                    return solver.reduceDomain(x, Domain.of(minX2, maxX2)) &&
+                            solver.reduceDomain(y, Domain.of(z - maxX2, z - minX2)) &&
                             solver.subscribe(this);
                 } else {
-                    return solver.reduceDomain(y.index, Domain.of(z - domX.getUpperBound(), z - domX.getLowerBound())) &&
+                    return solver.reduceDomain(y, Domain.of(z - domX.getUpperBound(), z - domX.getLowerBound())) &&
                             solver.subscribe(this);
                 }
             } else if (domY.isBounded()) {
-                return solver.reduceDomain(x.index, Domain.of(z - domY.getUpperBound(), z - domY.getLowerBound())) &&
+                return solver.reduceDomain(x, Domain.of(z - domY.getUpperBound(), z - domY.getLowerBound())) &&
                         solver.subscribe(this);
             }
 
@@ -1138,7 +1135,7 @@ public class Fd {
         final static int CARD_THRESHOLD = 256;
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
+        public void maybeAddToAgenda(Solver solver, Var v, Domain dom) {
             if (isDefinite(dom)) {
                 solver.enqueue(this, 3);
             }
@@ -1149,31 +1146,31 @@ public class Fd {
             final Var x = walkVar(this.x, solver.subst), y = walkVar(this.y, solver.subst),
                     z = walkVar(this.z, solver.subst);
 
-            if (x.index == y.index && y.index == z.index) {
+            if (x == y && y == z) {
                 // Case: x + x = x --> x = 0
-                return solver.reduceDomain(x.index, 0);
+                return solver.reduceDomain(x, 0);
             }
 
-            if (x.index == y.index) {
+            if (x == y) {
                 // Case: 2x = z
                 solver.enqueueSubscribe(new TimesCVV(2, x, z), 2);
                 return true;
             }
 
-            if (x.index == z.index) {
+            if (x == z) {
                 // Case: x + y = x --> y = 0
-                return solver.reduceDomain(y.index, 0);
+                return solver.reduceDomain(y, 0);
             }
 
-            if (y.index == z.index) {
+            if (y == z) {
                 // Case: x + y = y --> x = 0
-                return solver.reduceDomain(x.index, 0);
+                return solver.reduceDomain(x, 0);
             }
 
             // x, y, z are three distinct variables
 
-            final Domain domX = solver.getDomain(x.index), domY = solver.getDomain(y.index),
-                    domZ = solver.getDomain(z.index);
+            final Domain domX = solver.getDomain(x), domY = solver.getDomain(y),
+                    domZ = solver.getDomain(z);
 
             if (isEmpty(domX) || isEmpty(domY) || isEmpty(domZ)) return false;
 
@@ -1225,7 +1222,7 @@ public class Fd {
                 final SortedSet<Integer> cX = domX.get().filter(xx -> domY.get().exists(yy -> domZ.get().contains(xx + yy))),
                         cY = domY.get().filter(yy -> cX.exists(xx -> domZ.get().contains(xx + yy))),
                         cZ = domZ.get().filter(zz -> cX.exists(xx -> cY.contains(zz - xx)));
-                return solver.reduceDomain(x.index, cX) && solver.reduceDomain(y.index, cY) && solver.reduceDomain(z.index, cZ) &&
+                return solver.reduceDomain(x, cX) && solver.reduceDomain(y, cY) && solver.reduceDomain(z, cZ) &&
                         solver.subscribe(this);
             }
 
@@ -1238,23 +1235,23 @@ public class Fd {
                                 maxX2 = Math.min(domX.getUpperBound(), maxZ2 - domY.getLowerBound()),
                                 minY2 = Math.max(domY.getLowerBound(), minZ2 - maxX2),
                                 maxY2 = Math.min(domY.getUpperBound(), maxZ2 - minX2);
-                        return solver.reduceDomain(x.index, Domain.of(minX2, maxX2)) &&
-                                solver.reduceDomain(y.index, Domain.of(minY2, maxY2)) &&
-                                solver.reduceDomain(z.index, Domain.of(minZ2, maxZ2)) &&
+                        return solver.reduceDomain(x, Domain.of(minX2, maxX2)) &&
+                                solver.reduceDomain(y, Domain.of(minY2, maxY2)) &&
+                                solver.reduceDomain(z, Domain.of(minZ2, maxZ2)) &&
                                 solver.subscribe(this);
                     } else {
-                        return solver.reduceDomain(z.index, Domain.of(domX.getLowerBound() + domY.getLowerBound(),
+                        return solver.reduceDomain(z, Domain.of(domX.getLowerBound() + domY.getLowerBound(),
                                 domX.getUpperBound() + domY.getUpperBound())) &&
                                 solver.subscribe(this);
                     }
                 } else if (domZ.isBounded()) {
-                    return solver.reduceDomain(y.index, Domain.of(domZ.getLowerBound() - domX.getUpperBound(),
+                    return solver.reduceDomain(y, Domain.of(domZ.getLowerBound() - domX.getUpperBound(),
                             domZ.getUpperBound() - domY.getLowerBound())) &&
                             solver.subscribe(this);
                 }
             } else if (domY.isBounded()) {
                 if (domZ.isBounded()) {
-                    return solver.reduceDomain(x.index, Domain.of(domZ.getLowerBound() - domY.getUpperBound(),
+                    return solver.reduceDomain(x, Domain.of(domZ.getLowerBound() - domY.getUpperBound(),
                             domZ.getUpperBound() - domY.getLowerBound())) &&
                             solver.subscribe(this);
                 }
@@ -1273,12 +1270,12 @@ public class Fd {
         }
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
+        public void maybeAddToAgenda(Solver solver, Var v, Domain dom) {
             if (!isDefinite(dom)) return;
             final SortedSet<Integer> set = dom.get();
-            if ((walkVar(x, solver.subst).index == varIndex && cXY.exists(t -> !set.contains(t._1))) ||
-                    (walkVar(y, solver.subst).index == varIndex && cXY.exists(t -> !set.contains(t._2))) ||
-                    (walkVar(z, solver.subst).index == varIndex && cXY.exists(t -> !set.contains(t._1 + t._2)))) {
+            if ((walkVar(x, solver.subst) == v && cXY.exists(t -> !set.contains(t._1))) ||
+                    (walkVar(y, solver.subst) == v && cXY.exists(t -> !set.contains(t._2))) ||
+                    (walkVar(z, solver.subst) == v && cXY.exists(t -> !set.contains(t._1 + t._2)))) {
                 solver.enqueue(this, 2);
             }
         }
@@ -1289,30 +1286,30 @@ public class Fd {
             final Var x = walkVar(this.x, solver.subst), y = walkVar(this.y, solver.subst),
                     z = walkVar(this.z, solver.subst);
 
-            if (x.index == y.index && y.index == z.index) {
+            if (x == y && y == z) {
                 // Case: x + x = x --> x = 0
-                return solver.reduceDomain(x.index, 0);
+                return solver.reduceDomain(x, 0);
             }
 
-            if (x.index == y.index) {
+            if (x == y) {
                 // Case: 2x = z
                 return solver.enqueueSubscribe(new TimesCVV(2, x, z), 2);
             }
 
-            if (x.index == z.index) {
+            if (x == z) {
                 // Case: x + y = x --> y = 0
-                return solver.reduceDomain(y.index, 0);
+                return solver.reduceDomain(y, 0);
             }
 
-            if (y.index == z.index) {
+            if (y == z) {
                 // Case: x + y = y --> x = 0
-                return solver.reduceDomain(x.index, 0);
+                return solver.reduceDomain(x, 0);
             }
 
             // x, y, z are three distinct variables
 
-            final Domain domX = solver.getDomain(x.index), domY = solver.getDomain(y.index),
-                    domZ = solver.getDomain(z.index);
+            final Domain domX = solver.getDomain(x), domY = solver.getDomain(y),
+                    domZ = solver.getDomain(z);
 
             if (isEmpty(domX) || isEmpty(domY) || isEmpty(domZ)) return false;
 
@@ -1324,17 +1321,17 @@ public class Fd {
             } else if (hasSolution(domX) && hasSolution(domY)) {
                 final int xx = solution(domX), yy = solution(domY);
                 return cXY.exists(t -> t._1 == xx) && cXY.exists(t -> t._2 == yy) &&
-                        solver.reduceDomain(z.index, xx + yy);
+                        solver.reduceDomain(z, xx + yy);
 
             } else if (hasSolution(domX) && hasSolution(domZ)) {
                 final int xx = solution(domX), zz = solution(domZ);
                 return cXY.exists(t -> t._1 == xx) && cXY.exists(t -> t._1 + t._2 == zz) &&
-                        solver.reduceDomain(y.index, zz - xx);
+                        solver.reduceDomain(y, zz - xx);
 
             } else if (hasSolution(domY) && hasSolution(domZ)) {
                 final int yy = solution(domY), zz = solution(domZ);
                 return cXY.exists(t -> t._2 == yy) && cXY.exists(t -> t._1 + t._2 == zz) &&
-                        solver.reduceDomain(x.index, zz - yy);
+                        solver.reduceDomain(x, zz - yy);
 
             } else if (hasSolution(domX)) {
                 solver.enqueueSubscribe(new PlusVCV(y, solution(domX), z), 1);
@@ -1356,8 +1353,8 @@ public class Fd {
                 final SortedSet<Integer> cX2 = cXY2.map(t -> t._1).toSortedSet(),
                         cY2 = cXY2.map(t -> t._2).toSortedSet(),
                         cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
-                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
-                        solver.reduceDomain(z.index, cZ2)
+                return solver.reduceDomain(x, cX2) && solver.reduceDomain(y, cY2) &&
+                        solver.reduceDomain(z, cZ2)
                         && solver.subscribe(new PlusVVV_XY(x, y, cXY2, z));
 
             } else if (isDefinite(domX) && isDefinite(domY)) {
@@ -1366,8 +1363,8 @@ public class Fd {
                 final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
                         cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
                         cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
-                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
-                        solver.reduceDomain(z.index, cZ2) &&
+                return solver.reduceDomain(x, cX2) && solver.reduceDomain(y, cY2) &&
+                        solver.reduceDomain(z, cZ2) &&
                         solver.subscribe(new PlusVVV_XY(x, y, cXY2, z));
 
             } else if (isDefinite(domX) && isDefinite(domZ)) {
@@ -1376,8 +1373,8 @@ public class Fd {
                 final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
                         cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
                         cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
-                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
-                        solver.reduceDomain(z.index, cZ2) &&
+                return solver.reduceDomain(x, cX2) && solver.reduceDomain(y, cY2) &&
+                        solver.reduceDomain(z, cZ2) &&
                         solver.subscribe(new PlusVVV_XY(x, y, cXY2, z));
 
             } else if (isDefinite(domY) && isDefinite(domZ)) {
@@ -1386,8 +1383,8 @@ public class Fd {
                 final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
                         cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
                         cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
-                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
-                        solver.reduceDomain(z.index, cZ2) &&
+                return solver.reduceDomain(x, cX2) && solver.reduceDomain(y, cY2) &&
+                        solver.reduceDomain(z, cZ2) &&
                         solver.subscribe(new PlusVVV_XY(x, y, cXY2, z));
 
             } else if (isDefinite(domX)) {
@@ -1396,8 +1393,8 @@ public class Fd {
                 final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
                         cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
                         cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
-                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
-                        solver.reduceDomain(z.index, cZ2) &&
+                return solver.reduceDomain(x, cX2) && solver.reduceDomain(y, cY2) &&
+                        solver.reduceDomain(z, cZ2) &&
                         solver.subscribe(new PlusVVV_XY(x, y, cXY2, z));
 
             } else if (isDefinite(domY)) {
@@ -1406,8 +1403,8 @@ public class Fd {
                 final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
                         cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
                         cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
-                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
-                        solver.reduceDomain(z.index, cZ2) &&
+                return solver.reduceDomain(x, cX2) && solver.reduceDomain(y, cY2) &&
+                        solver.reduceDomain(z, cZ2) &&
                         solver.subscribe(new PlusVVV_XY(x, y, cXY2, z));
 
             } else if (isDefinite(domZ)) {
@@ -1416,17 +1413,17 @@ public class Fd {
                 final SortedSet<Integer> cX2 = cXY2.map(Tuple2::_1).toSortedSet(),
                         cY2 = cXY2.map(Tuple2::_2).toSortedSet(),
                         cZ2 = cXY2.map(t -> t._1 + t._2).toSortedSet();
-                return solver.reduceDomain(x.index, cX2) && solver.reduceDomain(y.index, cY2) &&
-                        solver.reduceDomain(z.index, cZ2) &&
+                return solver.reduceDomain(x, cX2) && solver.reduceDomain(y, cY2) &&
+                        solver.reduceDomain(z, cZ2) &&
                         solver.subscribe(new PlusVVV_XY(x, y, cXY2, z));
             }
 
             if (domZ.isBounded()) {
                 final int minZ = domZ.getLowerBound(), maxZ = domZ.getUpperBound();
                 final List<Tuple2<Integer, Integer>> cXY2 = cXY.filter(t -> minZ <= t._1 + t._2 && t._1 + t._2 <= maxZ);
-                return solver.reduceDomain(x.index, cXY.map(Tuple2::_1).toSortedSet()) &&
-                        solver.reduceDomain(y.index, cXY.map(Tuple2::_2).toSortedSet()) &&
-                        solver.reduceDomain(z.index, cXY.map(t -> t._1 + t._2).toSortedSet()) &&
+                return solver.reduceDomain(x, cXY.map(Tuple2::_1).toSortedSet()) &&
+                        solver.reduceDomain(y, cXY.map(Tuple2::_2).toSortedSet()) &&
+                        solver.reduceDomain(z, cXY.map(t -> t._1 + t._2).toSortedSet()) &&
                         solver.subscribe(new PlusVVV_XY(x, y, cXY2, z));
             }
 
@@ -1508,7 +1505,7 @@ public class Fd {
         }
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
+        public void maybeAddToAgenda(Solver solver, Var v, Domain dom) {
             if (isDefinite(dom)) {
                 solver.enqueue(this, 0);
             }
@@ -1518,7 +1515,7 @@ public class Fd {
         public boolean propagate(Solver solver) {
 
             final List<Tuple2<Var, Domain>> walkedVars =
-                    xs.map(v -> walkVar(v, solver.subst)).toList().map(v -> Tuple.of(v, solver.getDomain(v.index)));
+                    xs.map(v -> walkVar(v, solver.subst)).toList().map(v -> Tuple.of(v, solver.getDomain(v)));
 
             Set<Var> xs2 = HashSet.empty();
             SortedSet<Integer> ys2 = ys;
@@ -1534,7 +1531,7 @@ public class Fd {
                 if (hasSolution(t._2)) continue;
                 xs2 = xs2.add(t._1);
                 if (isDefinite(t._2)) {
-                    if (!solver.reduceDomain(t._1.index, t._2.get().diff(ys2))) return false;
+                    if (!solver.reduceDomain(t._1, t._2.get().diff(ys2))) return false;
                 }
             }
 
@@ -1874,7 +1871,7 @@ public class Fd {
         }
 
         @Override
-        public void maybeAddToAgenda(Solver solver, int varIndex, Domain dom) {
+        public void maybeAddToAgenda(Solver solver, Var v, Domain dom) {
             if (isDefinite(dom)) {
                 solver.enqueue(this, 0);
             }
@@ -1885,19 +1882,19 @@ public class Fd {
             final Var y = walkVar(this.y, solver.subst), z = walkVar(this.z, solver.subst);
 
             if (x == 0) {
-                return solver.reduceDomain(z.index, 0);
+                return solver.reduceDomain(z, 0);
             }
 
             // Fom this point on, x != 0
 
-            if (y.index == z.index) {
+            if (y == z) {
                 // Case: xy = y, x != 0
                 if (x == 1) return true;
-                return solver.reduceDomain(y.index, 0);
+                return solver.reduceDomain(y, 0);
             }
 
-            final Domain domY = solver.getDomain(y.index),
-                    domZ = solver.getDomain(z.index);
+            final Domain domY = solver.getDomain(y),
+                    domZ = solver.getDomain(z);
 
             if (isEmpty(domY) || isEmpty(domZ)) return false;
 
@@ -1905,24 +1902,24 @@ public class Fd {
             if (hasSolution(domY) && hasSolution(domZ)) {
                 return x * solution(domY) == solution(domZ);
             } else if (hasSolution(domY)) {
-                return solver.reduceDomain(z.index, x * solution(domY));
+                return solver.reduceDomain(z, x * solution(domY));
             } else if (hasSolution(domZ)) {
                 final int zz = solution(domZ);
-                return zz % x == 0 && solver.reduceDomain(y.index, zz / x);
+                return zz % x == 0 && solver.reduceDomain(y, zz / x);
             }
 
 
 //            if (isDefinite(domY) && isDefinite(domZ)) {
 //                final SortedSet<Integer> zs2 = domY.get().map(yy -> x * yy).intersect(domZ.get()),
 //                        ys2 = zs2.map(zz -> zz / x);
-//                return solver.reduceDomain(y.index, ys2) && solver.reduceDomain(z.index, zs2) &&
+//                return solver.reduceDomain(y, ys2) && solver.reduceDomain(z, zs2) &&
 //                        solver.subscribe(this);
 //            } else if (isDefinite(domY)) {
-//                return solver.reduceDomain(z.index, domY.get().map(yy -> x * yy)) &&
+//                return solver.reduceDomain(z, domY.get().map(yy -> x * yy)) &&
 //                        solver.subscribe(this);
 //            } else if (isDefinite(domZ)) {
 //                final SortedSet<Integer> zs2 = domZ.get().filter(zz -> zz % x == 0);
-//                return solver.reduceDomain(z.index, zs2) && solver.reduceDomain(y.index, zs2.map(zz -> zz / x)) &&
+//                return solver.reduceDomain(z, zs2) && solver.reduceDomain(y, zs2.map(zz -> zz / x)) &&
 //                        solver.subscribe(this);
 //            }
 
@@ -1930,16 +1927,16 @@ public class Fd {
                 if (domZ.isDefinite()) {
                     final SortedSet<Integer> zs2 = domY.get().map(yy -> x * yy).intersect(domZ.get()),
                             ys2 = zs2.map(zz -> zz / x);
-                    return solver.reduceDomain(y.index, ys2) && solver.reduceDomain(z.index, zs2) &&
+                    return solver.reduceDomain(y, ys2) && solver.reduceDomain(z, zs2) &&
                             solver.subscribe(this);
                 } else if (domZ.isBounded()) {
                     final int minZ = domZ.getLowerBound(), maxZ = domZ.getUpperBound();
                     final SortedSet<Integer> zs2 = domY.get().map(yy -> x * yy).filter(zz -> minZ <= zz && zz <= maxZ),
                             ys2 = zs2.map(zz -> zz / x);
-                    return solver.reduceDomain(y.index, ys2) && solver.reduceDomain(z.index, zs2) &&
+                    return solver.reduceDomain(y, ys2) && solver.reduceDomain(z, zs2) &&
                             solver.subscribe(this);
                 } else {
-                    return solver.reduceDomain(z.index, domY.get().map(yy -> x * yy)) &&
+                    return solver.reduceDomain(z, domY.get().map(yy -> x * yy)) &&
                             solver.subscribe(this);
                 }
             } else if (domZ.isDefinite()) {
@@ -1948,11 +1945,11 @@ public class Fd {
                     final SortedSet<Integer> ys2 = domZ.get().filter(zz -> zz % x == 0).map(zz -> zz / x)
                             .filter(yy -> minY <= yy && yy <= maxY),
                             zs2 = ys2.map(yy -> yy * x);
-                    return solver.reduceDomain(y.index, ys2) && solver.reduceDomain(z.index, zs2) &&
+                    return solver.reduceDomain(y, ys2) && solver.reduceDomain(z, zs2) &&
                             solver.subscribe(this);
                 } else {
                     final SortedSet<Integer> zs2 = domZ.get().filter(zz -> zz % x == 0);
-                    return solver.reduceDomain(z.index, zs2) && solver.reduceDomain(y.index, zs2.map(zz -> zz / x)) &&
+                    return solver.reduceDomain(z, zs2) && solver.reduceDomain(y, zs2.map(zz -> zz / x)) &&
                             solver.subscribe(this);
                 }
             }
@@ -1966,11 +1963,11 @@ public class Fd {
                             minZ2 = (minZ1 % x == 0 ? minZ1 : minZ1 < 0 ? minZ1 + minZ1 % x : minZ1 + x - minZ1 % x),
                             maxZ2 = (maxZ1 % x == 0 ? maxZ1 : maxZ1 < 0 ? maxZ1 - x + maxZ1 % x : maxZ1 - maxZ1 % x),
                             minY2 = (x > 0 ? minZ : maxZ) / x, maxY2 = (x > 0 ? maxZ : minZ) / x;
-                    return solver.reduceDomain(y.index, Domain.of(minY2, maxY2)) &&
-                            solver.reduceDomain(z.index, Domain.of(minZ2, maxZ2)) &&
+                    return solver.reduceDomain(y, Domain.of(minY2, maxY2)) &&
+                            solver.reduceDomain(z, Domain.of(minZ2, maxZ2)) &&
                             solver.subscribe(this);
                 } else {
-                    return solver.reduceDomain(z.index, Domain.of(x * (x > 0 ? domY.getLowerBound() : domY.getUpperBound()),
+                    return solver.reduceDomain(z, Domain.of(x * (x > 0 ? domY.getLowerBound() : domY.getUpperBound()),
                             x * (x > 0 ? domY.getUpperBound() : domY.getLowerBound()))) &&
                             solver.subscribe(this);
                 }
@@ -1979,8 +1976,8 @@ public class Fd {
                         minZ2 = (minZ % x == 0 ? minZ : minZ < 0 ? minZ + minZ % x : minZ + x - minZ % x),
                         maxZ2 = (maxZ % x == 0 ? maxZ : maxZ < 0 ? maxZ - x + maxZ % x : maxZ - maxZ % x),
                         minY2 = (x > 0 ? minZ : maxZ) / x, maxY2 = (x > 0 ? maxZ : minZ) / x;
-                return solver.reduceDomain(y.index, Domain.of(minY2, maxY2)) &&
-                        solver.reduceDomain(z.index, Domain.of(minZ2, maxZ2)) &&
+                return solver.reduceDomain(y, Domain.of(minY2, maxY2)) &&
+                        solver.reduceDomain(z, Domain.of(minZ2, maxZ2)) &&
                         solver.subscribe(this);
             }
             return solver.subscribe(this);
