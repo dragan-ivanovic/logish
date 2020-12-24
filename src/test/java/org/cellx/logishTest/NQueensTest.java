@@ -25,19 +25,25 @@ public class NQueensTest {
 
     static Logish.Goal nQueens1(int r, int n, Object queens, Object available, Object board) {
         return delayed(() -> {
-            if (r > n) return seq(unify(available, Cons.NIL), unify(queens, board));
-            else return fresh((prefix, cv, suffix) ->
-                    seq(
-                            appendO(prefix, Cons.make(suffix, cv), available),
-                            not(fresh((r2v, c2v) -> seq(
-                                    memberO(Cons.make(c2v, r2v), queens),
-                                    test(Integer.class, cv, r2v, c2v, (c, r2, c2) -> attacks(r, c, r2, c2))
-                            ))),
-                            fresh(rest -> seq(
-                                    appendO(prefix, suffix, rest),
-                                    nQueens1(r + 1, n, Cons.make(queens, Cons.make(cv, r)), rest, board)
-                            ))
-                    ));
+            if (r > n) {
+                return seq(
+                        unify(available, Cons.NIL),
+                        unify(queens, board)
+                );
+            } else {
+                return fresh((prefix, cv, suffix) ->
+                        seq(
+                                appendO(prefix, Cons.make(suffix, cv), available),
+                                not(fresh((r2v, c2v) -> seq(
+                                        memberO(Cons.make(c2v, r2v), queens),
+                                        test(Integer.class, cv, r2v, c2v, (c, r2, c2) -> attacks(r, c, r2, c2))
+                                ))),
+                                fresh(rest -> seq(
+                                        appendO(prefix, suffix, rest),
+                                        nQueens1(r + 1, n, Cons.make(queens, Cons.make(cv, r)), rest, board)
+                                ))
+                        ));
+            }
         });
     }
 
@@ -52,8 +58,8 @@ public class NQueensTest {
                         final List<Tuple2<Integer, Integer>> typedSol =
                                 List.ofAll((Cons) sol).map(e -> {
                                     final Cons z = (Cons) e;
-                                    int r = (Integer)z.car();
-                                    int c = (Integer)z.cdr();
+                                    int r = (Integer) z.car();
+                                    int c = (Integer) z.cdr();
                                     assertTrue(r >= 1 && r <= 4);
                                     assertTrue(c >= 1 && c <= 4);
                                     return Tuple.of(r, c);
@@ -79,8 +85,8 @@ public class NQueensTest {
                         final List<Tuple2<Integer, Integer>> typedSol =
                                 List.ofAll((Cons) sol).map(e -> {
                                     final Cons z = (Cons) e;
-                                    int r = (Integer)z.car();
-                                    int c = (Integer)z.cdr();
+                                    int r = (Integer) z.car();
+                                    int c = (Integer) z.cdr();
                                     assertTrue(r >= 1 && r <= 5);
                                     assertTrue(c >= 1 && c <= 5);
                                     return Tuple.of(r, c);
