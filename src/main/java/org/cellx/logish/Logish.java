@@ -20,6 +20,9 @@ public class Logish {
     public static IdentityMap<Var, Object> variables(Object o) {
         final IdentityMap<Var, Object> emptyMap = IdentityMap.empty();
         if (o instanceof Var) return emptyMap.with((Var) o, Boolean.TRUE);
+        if (o instanceof IndexedSeq) {
+            return ((IndexedSeq<?>)o).foldLeft(emptyMap, (m, e) -> m.withAll(variables(e)));
+        }
         if (!(o instanceof Cons)) return emptyMap;
         IdentityMap<Var, Object> current = emptyMap;
         while (o instanceof Cons) {
@@ -30,16 +33,20 @@ public class Logish {
     }
 
     public static boolean exists(Object list, Predicate<Object> predicate) {
-        boolean first = true;
-        if (list instanceof Cons) {
-            do {
-                final Cons consCell = (Cons) list;
-                if (predicate.test(consCell.car)) return true;
-                list = consCell.cdr;
-                first = false;
-            } while (list instanceof Cons);
+        if (list instanceof IndexedSeq) {
+            return ((IndexedSeq<?>)list).exists(predicate);
+        } else {
+            boolean first = true;
+            if (list instanceof Cons) {
+                do {
+                    final Cons consCell = (Cons) list;
+                    if (predicate.test(consCell.car)) return true;
+                    list = consCell.cdr;
+                    first = false;
+                } while (list instanceof Cons);
+            }
+            return !first && predicate.test(list);
         }
-        return !first && predicate.test(list);
     }
 
     public static Object walk(Object term, Subst subst) {
@@ -63,7 +70,9 @@ public class Logish {
 
     public static Object walkDeep(Object term0, Subst subst) {
         final Object term = walk(term0, subst);
-        if (term instanceof Cons) {
+        if (term instanceof IndexedSeq) {
+            return ((IndexedSeq<?>)term).map(e -> walkDeep(e, subst));
+        } else if (term instanceof Cons) {
             return ((Cons) term).mapTail(e -> walkDeep(e, subst));
         } else return term;
     }
@@ -466,7 +475,20 @@ public class Logish {
                 if (left == right) return Option.of(current);
             }
             return unify(left, right, current);
-        } else {
+        } else if (left instanceof IndexedSeq) {
+            if (!(right instanceof IndexedSeq)) return Option.none();
+            final IndexedSeq<?> leftSeq = (IndexedSeq<?>)left,
+                    rightSeq = (IndexedSeq<?>)right;
+            final int len = leftSeq.length();
+            if (rightSeq.length() != len) return Option.none();
+            Subst current = subst;
+            for(int i=0; i<len; i++) {
+                final Option<Subst> itemResult = unify(leftSeq.get(i), rightSeq.get(i), current);
+                if (itemResult.isEmpty()) return Option.none();
+                current = itemResult.get();
+            }
+            return Option.of(current);
+        } else{
             return Objects.equals(left, right) ? Option.of(subst) : Option.none();
         }
     }
@@ -831,7 +853,7 @@ public class Logish {
         }
 
         public static <T> Goal test(Class<T> clazzXY, Var x, Var y,
-                                         Function2<T, T, Boolean> test) {
+                                    Function2<T, T, Boolean> test) {
             return test(clazzXY, x, clazzXY, y, test);
         }
 
@@ -849,7 +871,7 @@ public class Logish {
         }
 
         public static <T> Goal test(Class<T> clazzXYZ, Var x, Var y, Var z,
-                                    Function3<T, T, T, Boolean>test) {
+                                    Function3<T, T, T, Boolean> test) {
             return test(clazzXYZ, x, clazzXYZ, y, clazzXYZ, z, test);
         }
 
@@ -881,7 +903,7 @@ public class Logish {
         }
 
         public static <T> Goal side(Class<T> clazzXY, Var x, Var y,
-                                         Function2<T, T, Void> action) {
+                                    Function2<T, T, Void> action) {
             return side(clazzXY, x, clazzXY, y, action);
         }
 
@@ -925,7 +947,7 @@ public class Logish {
         }
 
         public static <T> Goal map(Class<T> clazzXY, Var x, Var y,
-                                        Function2<T, T, Object> f, Object w) {
+                                   Function2<T, T, Object> f, Object w) {
             return map(clazzXY, x, clazzXY, y, f, w);
         }
 
@@ -952,5 +974,29 @@ public class Logish {
             };
         }
 
+        public static Goal findAll(Object template, Supplier<Goal> body, Stream<Object> bag) {
+            return findAllImpl(Option.none(), template, body, bag);
+        }
+
+        public static Goal findAtMost(int limit, Object template, Supplier<Goal> body, Stream<Object> bag) {
+            return findAllImpl(Option.some(limit), template, body, bag);
+        }
+
+        protected static Goal findAllImpl(Option<Integer> optLimit, Object template, Supplier<Goal> body, Stream<Object> bag) {
+            return subst -> {
+                final Stream<Tuple2<Object,Integer>> stream = Stream.ofAll(body.get().apply(subst))
+                        .map(s -> walkDeep(template, subst))
+                        .zipWithIndex();
+                final Stream<Tuple2<Object, Integer>> limitedStream;
+                if (optLimit.isEmpty()) {
+                    limitedStream = stream;
+                } else {
+                    final int limit = optLimit.get();
+                    limitedStream = stream.takeUntil(t -> t._2 >= limit);
+                }
+                final Stream<Object> result = limitedStream.map(Tuple2::_1);
+                return unify(bag, result).apply(subst);
+            };
+        }
     }
 }
