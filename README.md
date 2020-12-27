@@ -52,7 +52,7 @@ logical goal to the right of `q ->`.  Here, the goal is `unify(q,
 the query variable `q` and string literal `"World"`.  
 
 Java expression `run(q -> unify(q, "World")` can be read as a question: \`_Which values of `q`
-make goal `unify(q, "World")` true?_' The  only possible solutio is when _q_ is equal
+make goal `unify(q, "World")` true?_' The only solution for _q_ is equal
 to the string literal `"World"`, and therefore resulting
 stream of values for `q` has exactly one member. The program therefore prints
 `"Hello, World!"` ands stops.
