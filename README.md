@@ -35,27 +35,26 @@ environment at an acceptable performance.
 ```java
 import static org.cellx.logish.Logish.run;
 import static org.cellx.logish.Logish.StdGoals.*;
-import io.vavr.collection.Stream;
 
 public class MinimalLogish {
 
- public static void main(String[] argv) {
-   final Stream<Object> result = run(q -> unify(q, "World"));
-   for (final Object o: result) {
-     System.out.println("Hello, " + o + "!");
-   }
- }
+    public static void main(String[] argv) {
+        run(q -> unify(q, "World"))
+                .forEach(o -> System.out.println("Hello, " + o + "!"));
+    }
 }
 ```
 
 In this example, method `run()` executes a query over a logical variable
 named `q`, and returns a stream of values for `q` that satisfy a
-logical goal to the right of `->`.  Here, the goal is `unify(q,
-"World")`, which unifies (establishes logical equality between)
-its arguments.  Expression `run(q -> unify(q, "World")` can be read as: \`_Find q
-that makes goal `unify(q, "World")` true_.' That is only possible when _q_ is in 
-fact equal to the string literal `"World"`, and therefore resulting
-stream of values for _q_ has exactly one member. The program prints
+logical goal to the right of `q ->`.  Here, the goal is `unify(q,
+"World")`, which unifies (asserts logical equality between)
+the query variable `q` and string literal `"World"`.  
+
+Java expression `run(q -> unify(q, "World")` can be read as a question: \`_Which values of `q`
+make goal `unify(q, "World")` true?_' The  only possible solutio is when _q_ is equal
+to the string literal `"World"`, and therefore resulting
+stream of values for `q` has exactly one member. The program therefore prints
 `"Hello, World!"` ands stops.
 
 
