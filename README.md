@@ -7,28 +7,26 @@ MiniKanren with finite-domain constraints in Java.
 ## Introduction
 
 _Logish_ is a Java 8+ implementation of
-[**miniKanren**](http://minikanren.org/), an embedded domain-specific
-language for logic programming. The project aims at emulating the key
-benefits of fully-fledged constraint logic programming systems based on 
-[**Prolog**](https://en.wikipedia.org/wiki/Prolog) in a Java-only 
-environment at an acceptable performance, and hence the name.
+[**miniKanren**](http://minikanren.org/), an embedded sub-language (domain-specific
+language) for relational programming. Logish aims at emulating the key
+benefits of fully-fledged [Constraint Logic Programming (CLP)](https://en.wikipedia.org/wiki/Constraint_logic_programming) 
+systems based on [**Prolog**](https://en.wikipedia.org/wiki/Prolog) in a Java-only 
+environment at an acceptable performance.
 
 ## Features
 
-  - _Logish_ is small and compact: the core system is in a single Java
-    source file `Logish.java`, and the finite domain constraint solver
-    resides in another file `Fd.java`.
+  - Small and compact, single external dependency: _Logish_ 
+    internally uses [Java Vavr library](https://www.vavr.io/)
+    for immutable functional data structures in Java.
   
-  - The usage is simple: for basic use it suffices to import static
-    method `Logish.run`, and all static members of `Logish.Goal`.
+  - Simple usage: for basic use it suffices to import static
+    method `Logish.run`, and all static members of `Logish.StdGoals`.
   
-  - _Logish_ internally uses [Java Vavr library](https://www.vavr.io/)
-    for immutable functional data structures in Java.  A query result
-    is a `Stream` of objects (no need to specify upfront how many
-    solutions to look for).
+  - Queries return a `Stream` of objects (no need to specify upfront 
+    how many solutions to look for).
     
-  - It contains constraint solving over finite (integer) domains (with linear
-    constraints).  The underlying mechanism for constraint solving are attributed 
+  - Constraint solving over finite (integer) domains, with linear
+    constraints.  The underlying mechanism for constraint solving are attributed 
     variables, allowing coexistence of multiple constraint solvers.
     
   
@@ -36,7 +34,7 @@ environment at an acceptable performance, and hence the name.
 
 ```java
 import static org.cellx.logish.Logish.run;
-import static org.cellx.logish.Logish.Goal.*;
+import static org.cellx.logish.Logish.StdGoals.*;
 import io.vavr.collection.Stream;
 
 public class MinimalLogish {
