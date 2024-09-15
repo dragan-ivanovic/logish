@@ -51,6 +51,14 @@ logical goal to the right of `q ->`.  Here, the goal is `unify(q,
 "World")`, which unifies (asserts logical equality between)
 the query variable `q` and string literal `"World"`.  
 
+Technically, the argument to `run()` is a function that accepts a logic variable
+created by `run()` and returns a goal (to the right of `->` in our example).  What `run()` 
+does next is to execute (i.e., try to satisfy) the goal, which may result in zero or more 
+solutions.  For each solution, `run()` puts the value of the logic variable in the resulting
+stream. This is done lazily: only when the code accessing the stream tries to get the
+next element, the next solution of the goal is computed.  Since a goal may succeed infinitely 
+many times, the resulting stream may be infinite.
+
 Java expression `run(q -> unify(q, "World")` can be read as a question: \`_Which values of `q`
 make goal `unify(q, "World")` true?_' The only solution for _q_ is equal
 to the string literal `"World"`, and therefore resulting
