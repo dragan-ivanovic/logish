@@ -52,12 +52,13 @@ logical goal to the right of `q ->`.  Here, the goal is `unify(q,
 the query variable `q` and string literal `"World"`.  
 
 Technically, the argument to `run()` is a function that accepts a logic variable
-created by `run()` and returns a goal (to the right of `->` in our example).  What `run()` 
-does next is to execute (i.e., try to satisfy) the goal, which may result in zero or more 
-solutions.  For each solution, `run()` puts the value of the logic variable in the resulting
-stream. This is done lazily: only when the code accessing the stream tries to get the
-next element, the next solution of the goal is computed.  Since a goal may succeed infinitely 
-many times, the resulting stream may be infinite.
+created by `run()` and returns a goal that uses the variable(to the right of `->` in 
+our example).  What `run()` does next is to execute (i.e., try to satisfy) the goal, 
+which may result in zero or more solutions.  For each solution, `run()` puts the 
+value of the logic variable in the resulting stream. This is done lazily: only when the 
+code accessing the stream tries to get the next element, the next solution of the goal 
+is computed.  Since a goal may succeed infinitely many times, the resulting stream may 
+be infinite.
 
 Java expression `run(q -> unify(q, "World")` can be read as a question: \`_Which values of `q`
 make goal `unify(q, "World")` true?_' The only solution for _q_ is equal
@@ -75,7 +76,7 @@ memory that stores the value: after its value has become known, it
 never changes.  And it also differs from a `final` variable, because its value 
 is initially unknown and may become known only in the process of executing a logic goal. 
 In logic programming, and therefore in _Logish_, the
-computation if effectively a search for values of the variables that
+computation is effectively a search for values of the variables that
 satisfy the **goal**.
 
 As an example, a query:
