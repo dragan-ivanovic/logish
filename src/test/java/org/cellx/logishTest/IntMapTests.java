@@ -23,6 +23,7 @@ public class IntMapTests {
     public void testInsertion(HashSet<@InRange(min = "0", max = "100") Integer> set) {
         // Insert all values into a map
         final IntMap<Integer> map = IntMap.ofAll(set, i -> IntMap.entry(i, i));
+        map.withAll(set, i -> IntMap.entry(i+100, null));
         // Make sure the tree is balanced
         map.checkConsistency();
         // Compare the map and the set
@@ -36,14 +37,18 @@ public class IntMapTests {
         for (int i=0; i<=100; i++) set.add(i);
 
         final IntMap<Integer> fullMap = IntMap.ofAll(set, i -> IntMap.entry(i, i));
+        final IntMap<Integer> emptyMap = IntMap.empty();
 
         set.removeAll(minusSet);
 
         final IntMap<Integer> reducedMap = fullMap.withoutKeys(minusSet, i -> i);
+        final IntMap<Integer> anotherEmptyMap = emptyMap.withoutKeys(minusSet, i -> i);
 
         reducedMap.checkConsistency();
+        anotherEmptyMap.checkConsistency();
 
         compareMapKeysAndSet(reducedMap, set);
+        compareMapKeysAndSet(anotherEmptyMap, new TreeSet<>());
     }
 
     protected  <V> void compareMapKeysAndSet(IntMap<V> map, Set<Integer> set) {
